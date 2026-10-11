@@ -35,6 +35,10 @@ import appeng.menu.locator.ItemMenuHostLocator;
 import appeng.util.inv.SupplierInternalInventory;
 
 public class NetworkToolMenuHost<T extends NetworkToolItem> extends ItemMenuHost<T> {
+    // Concurrent windows must mutate the same inventory, rather than cached copies of its component.
+    // Weak identity keys and weak values retain neither a discarded tool nor its inventory.
+    private static final java.util.concurrent.ConcurrentMap<net.minecraft.world.item.ItemStack, InternalInventory> MENU_INVENTORIES = new com.google.common.collect.MapMaker()
+            .weakKeys().weakValues().makeMap();
     @Nullable
     private final IInWorldGridNodeHost host;
 
@@ -45,7 +49,8 @@ public class NetworkToolMenuHost<T extends NetworkToolItem> extends ItemMenuHost
         super(item, player, locator);
         this.host = host;
         this.supplierInv = new SupplierInternalInventory<>(
-                new StackDependentSupplier<>(this::getItemStack, NetworkToolItem::getInventory));
+                new StackDependentSupplier<>(this::getItemStack,
+                        stack -> MENU_INVENTORIES.computeIfAbsent(stack, NetworkToolItem::getInventory)));
     }
 
     @Override

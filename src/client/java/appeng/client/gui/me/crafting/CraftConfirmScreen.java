@@ -46,6 +46,10 @@ public class CraftConfirmScreen extends AEBaseScreen<CraftConfirmMenu> {
     private final Button selectCPU;
     private final Scrollbar scrollbar;
 
+    public int desktopPlanScroll() {
+        return scrollbar.getCurrentScroll();
+    }
+
     public CraftConfirmScreen(CraftConfirmMenu menu, Inventory playerInventory, Component title,
             ScreenStyle style) {
         super(menu, playerInventory, title, style);
@@ -60,6 +64,13 @@ public class CraftConfirmScreen extends AEBaseScreen<CraftConfirmMenu> {
         this.selectCPU.active = false;
 
         widgets.addButton("cancel", GuiText.Cancel.text(), menu::goBack);
+    }
+
+    @Override
+    protected void init() {
+        if (isDesktopHosted())
+            table.setLayout(9, 19, 3);
+        super.init();
     }
 
     @Override

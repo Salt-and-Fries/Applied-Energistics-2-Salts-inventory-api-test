@@ -84,7 +84,7 @@ public class CraftingEncodingPanel extends EncodingModePanel {
 
     @Override
     public void drawBackgroundLayer(GuiGraphicsExtractor guiGraphics, Rect2i bounds, Point mouse) {
-        BG.dest(bounds.getX() + 8, bounds.getY() + bounds.getHeight() - 165).blit(guiGraphics);
+        drawModeBackground(guiGraphics, bounds, BG);
 
         var absMouseX = bounds.getX() + mouse.getX();
         var absMouseY = bounds.getY() + mouse.getY();

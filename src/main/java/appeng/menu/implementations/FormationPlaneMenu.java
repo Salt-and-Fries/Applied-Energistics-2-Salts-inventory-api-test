@@ -44,6 +44,8 @@ public class FormationPlaneMenu extends UpgradeableMenu<FormationPlanePart> {
     public FormationPlaneMenu(MenuType<FormationPlaneMenu> type, int id, Inventory ip,
             FormationPlanePart host) {
         super(type, id, ip, host);
+        // A full opening sync can run before the first broadcastChanges tick.
+        this.placeMode = host.getConfigManager().getSetting(Settings.PLACE_BLOCK);
     }
 
     @Override

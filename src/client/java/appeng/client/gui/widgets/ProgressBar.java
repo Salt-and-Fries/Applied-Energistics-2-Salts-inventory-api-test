@@ -40,6 +40,11 @@ public class ProgressBar extends AbstractWidget implements ITooltip {
     private final Rect2i sourceRect;
     private final Component titleName;
     private Component fullMsg;
+    private boolean desktop;
+
+    public void setDesktop(boolean desktop) {
+        this.desktop = desktop;
+    }
 
     public ProgressBar(IProgressProvider source, Blitter blitter, Direction dir) {
         this(source, blitter, dir, null);
@@ -62,6 +67,10 @@ public class ProgressBar extends AbstractWidget implements ITooltip {
     @Override
     public void extractWidgetRenderState(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float partialTicks) {
         if (this.visible) {
+            if (desktop) {
+                appeng.client.gui.DesktopChrome.recessed(guiGraphics,
+                        new Rect2i(getX() - 1, getY() - 1, width + 2, height + 2));
+            }
             int max = this.source.getMaxProgress();
             int current = this.source.getCurrentProgress();
 

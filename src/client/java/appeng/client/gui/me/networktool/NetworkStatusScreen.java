@@ -58,6 +58,10 @@ public class NetworkStatusScreen extends AEBaseScreen<NetworkStatusMenu> {
 
     private final Scrollbar scrollbar;
 
+    public int desktopMachineScroll() {
+        return scrollbar.getCurrentScroll();
+    }
+
     public NetworkStatusScreen(NetworkStatusMenu menu, Inventory playerInventory,
             Component title, ScreenStyle style) {
         super(menu, playerInventory, title, style);
@@ -88,12 +92,33 @@ public class NetworkStatusScreen extends AEBaseScreen<NetworkStatusMenu> {
     }
 
     @Override
+    public void drawBG(GuiGraphicsExtractor graphics, int x, int y, int mouseX, int mouseY, float partialTicks) {
+        if (isDesktopHosted() && usesAeDesktopLayout()) {
+            appeng.client.gui.style.BackgroundGenerator.draw(imageWidth, imageHeight, graphics, x, y);
+            var source = style.getBackground();
+            source.copy().src(source.getSrcX(), source.getSrcY(), source.getSrcWidth(), source.getSrcHeight() - 4)
+                    .dest(x, y).blit(graphics);
+            appeng.client.gui.style.DesktopFrameEdges.bottom(graphics, source, source.getSrcWidth(),
+                    x, y + imageHeight - 4, imageWidth);
+        } else
+            super.drawBG(graphics, x, y, mouseX, mouseY, partialTicks);
+    }
+
+    private int columns() {
+        return isDesktopHosted() ? 3 : COLUMNS;
+    }
+
+    private int cellWidth() {
+        return isDesktopHosted() ? 52 : CELL_WIDTH;
+    }
+
+    @Override
     public void drawFG(GuiGraphicsExtractor guiGraphics, int offsetX, int offsetY, int mouseX,
             int mouseY) {
         int x = 0;
         int y = 0;
-        final int viewStart = scrollbar.getCurrentScroll() * COLUMNS;
-        final int viewEnd = viewStart + COLUMNS * ROWS;
+        final int viewStart = scrollbar.getCurrentScroll() * columns();
+        final int viewEnd = viewStart + columns() * ROWS;
 
         List<Component> tooltip = null;
         List<MachineGroup> machines = new ArrayList<>(status.getGroupedMachines());
@@ -103,15 +128,15 @@ public class NetworkStatusScreen extends AEBaseScreen<NetworkStatusMenu> {
         for (int i = viewStart; i < Math.min(viewEnd, machines.size()); i++) {
             MachineGroup entry = machines.get(i);
 
-            int cellX = TABLE_X + x * CELL_WIDTH;
+            int cellX = TABLE_X + x * cellWidth();
             int cellY = TABLE_Y + y * CELL_HEIGHT;
 
             // Position the item with a margin of 1px to the right of the cell
-            int itemX = cellX + CELL_WIDTH - 17;
+            int itemX = cellX + cellWidth() - 17;
             int itemY = cellY + 1;
 
             if (entry.isMissingChannel()) {
-                guiGraphics.fill(cellX, cellY, cellX + CELL_WIDTH, cellY + CELL_HEIGHT, 0xffff5555);
+                guiGraphics.fill(cellX, cellY, cellX + cellWidth(), cellY + CELL_HEIGHT, 0xffff5555);
             }
 
             drawMachineCount(guiGraphics, itemX, cellY, entry.getCount());
@@ -119,7 +144,7 @@ public class NetworkStatusScreen extends AEBaseScreen<NetworkStatusMenu> {
             AEKeyRendering.drawInGui(Minecraft.getInstance(), guiGraphics, itemX, itemY, entry.getDisplay());
 
             // Update the tooltip based on the calculated cell rectangle and mouse position
-            if (isHovering(cellX, cellY, CELL_WIDTH, CELL_HEIGHT, mouseX, mouseY)) {
+            if (isHovering(cellX, cellY, cellWidth(), CELL_HEIGHT, mouseX, mouseY)) {
                 tooltip = new ArrayList<>();
                 tooltip.add(entry.getDisplay().getDisplayName());
                 if (entry.isMissingChannel()) {
@@ -137,7 +162,7 @@ public class NetworkStatusScreen extends AEBaseScreen<NetworkStatusMenu> {
                 }
             }
 
-            if (++x >= COLUMNS) {
+            if (++x >= columns()) {
                 y++;
                 x = 0;
             }
@@ -158,9 +183,12 @@ public class NetworkStatusScreen extends AEBaseScreen<NetworkStatusMenu> {
             str = Long.toString(count);
         }
 
-        // Keep in mind the text will be scaled down 50%
-        float textWidth = this.font.width(str) / 2.0f;
-        float textHeight = this.font.lineHeight / 2.0f;
+        float scale = isDesktopHosted() ? 1 : 0.5f;
+        if (isDesktopHosted() && font.width(str) > cellWidth() - 19) {
+            str = appeng.util.ReadableNumberConverter.format(count, 5);
+        }
+        float textWidth = this.font.width(str) * scale;
+        float textHeight = this.font.lineHeight * scale;
 
         // Draw the count at half-size
         var poseStack = guiGraphics.pose();
@@ -168,7 +196,7 @@ public class NetworkStatusScreen extends AEBaseScreen<NetworkStatusMenu> {
         poseStack.translate(
                 x - 1 - textWidth,
                 y + (CELL_HEIGHT - textHeight) / 2.0f);
-        poseStack.scale(0.5f);
+        poseStack.scale(scale);
         guiGraphics.text(this.font, str, 0, 0,
                 style.getColor(PaletteColor.DEFAULT_TEXT_COLOR).toARGB(), false);
         poseStack.popMatrix();
@@ -181,7 +209,7 @@ public class NetworkStatusScreen extends AEBaseScreen<NetworkStatusMenu> {
 
     private void setScrollBar() {
         final int size = this.status.getGroupedMachines().size();
-        int overflowRows = (size + COLUMNS - 1) / COLUMNS - ROWS;
+        int overflowRows = (size + columns() - 1) / columns() - ROWS;
         scrollbar.setRange(0, overflowRows, 1);
     }
 

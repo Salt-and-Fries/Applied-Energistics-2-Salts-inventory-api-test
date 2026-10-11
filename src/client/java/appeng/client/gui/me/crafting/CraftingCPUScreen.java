@@ -55,7 +55,7 @@ public class CraftingCPUScreen<T extends CraftingCPUMenu> extends AEBaseScreen<T
 
     private static final Logger LOG = LoggerFactory.getLogger(CraftingCPUScreen.class);
 
-    private final CraftingStatusTableRenderer table;
+    protected final CraftingStatusTableRenderer table;
 
     private final Button cancel;
     private final Button suspend;
@@ -66,10 +66,20 @@ public class CraftingCPUScreen<T extends CraftingCPUMenu> extends AEBaseScreen<T
 
     private CraftingStatus status;
 
+    protected int desktopTableY() {
+        return 19;
+    }
+
+    protected void clearCraftingStatus() {
+        status = null;
+    }
+
     public CraftingCPUScreen(T menu, Inventory playerInventory, Component title, ScreenStyle style) {
         super(menu, playerInventory, title, style);
 
-        this.table = new CraftingStatusTableRenderer(this, 9, 19);
+        this.table = new CraftingStatusTableRenderer(this,
+                style.isDesktopRestyled() && menu instanceof appeng.menu.me.crafting.CraftingStatusMenu ? 102 : 9,
+                19);
 
         this.scrollbar = widgets.addScrollBar("scrollbar", Scrollbar.BIG);
 
@@ -86,8 +96,34 @@ public class CraftingCPUScreen<T extends CraftingCPUMenu> extends AEBaseScreen<T
     }
 
     @Override
+    protected void init() {
+        if (isDesktopHosted() && usesAeDesktopLayout()) {
+            int tableY = desktopTableY();
+            int rowCount = Math.max(1, (imageHeight - 28 - tableY) / 23);
+            table.setLayout(9, tableY, rowCount);
+            getStyle().getWidget("scrollbar").setTop(tableY);
+            getStyle().getWidget("scrollbar").setHeight(rowCount * 23 - 1);
+            scrollbar.setHeight(rowCount * 23 - 1);
+        }
+        if (isDesktopHosted() && !usesAeDesktopLayout()) {
+            boolean statusMenu = menu instanceof appeng.menu.me.crafting.CraftingStatusMenu;
+            boolean narrow = statusMenu && imageWidth < 332;
+            int tableY = narrow ? 85 : 19;
+            table.setLayout(statusMenu && !narrow ? 102 : 9, tableY,
+                    Math.max(1, (imageHeight - 28 - tableY) / 23));
+            var scroll = getStyle().getWidget("scrollbar");
+            scroll.setLeft(imageWidth - 20);
+            scroll.setTop(tableY);
+            scrollbar.setHeight(Math.max(16, imageHeight - 28 - tableY));
+        }
+        super.init();
+    }
+
+    @Override
     protected void updateBeforeRender() {
         super.updateBeforeRender();
+        this.cancel.active = !getVisualEntries().isEmpty();
+        this.suspend.active = this.cancel.active;
 
         // Update the dialog title with an ETA if possible
         Component title = this.getGuiDisplayName(GuiText.CraftingStatus.text());
@@ -118,23 +154,53 @@ public class CraftingCPUScreen<T extends CraftingCPUMenu> extends AEBaseScreen<T
     }
 
     private List<CraftingStatusEntry> getVisualEntries() {
+        if (isDesktopHosted() && (!menu.cpuStatusReady || !menu.cpuAvailable || !menu.hasActiveJob
+                || menu instanceof appeng.menu.me.crafting.CraftingStatusMenu statusMenu
+                        && menu.cpuStatusSerial != statusMenu.getSelectedCpuSerial())) {
+            return Collections.emptyList();
+        }
         return this.status != null ? status.getEntries() : Collections.emptyList();
     }
 
-    @Override
-    public void extractRenderState(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, float btn) {
-        this.cancel.active = !getVisualEntries().isEmpty();
-        this.suspend.active = this.cancel.active;
+    public String desktopCraftingMessageKey() {
+        if (!getVisualEntries().isEmpty())
+            return "";
+        boolean waitingForSelection = menu instanceof appeng.menu.me.crafting.CraftingStatusMenu statusMenu
+                && menu.cpuStatusSerial != statusMenu.getSelectedCpuSerial();
+        return !menu.cpuStatusReady || waitingForSelection ? "waitingCraftingStatus"
+                : !menu.cpuAvailable ? "noCraftingCpu"
+                        : menu.hasActiveJob ? "waitingCraftingStatus" : "noCraftingJob";
+    }
 
-        super.extractRenderState(guiGraphics, mouseX, mouseY, btn);
+    protected final void drawDesktopTableOutline(GuiGraphicsExtractor graphics, int x, int y, int tableHeight) {
+        var source = getStyle().getBackground();
+        var edge = source.copy().src(source.getSrcX() + 8, source.getSrcY() + 20, 1, 1);
+        edge.copy().dest(x + 8, y + desktopTableY() - 1, 206, 1).blit(graphics);
+        edge.copy().dest(x + 8, y + desktopTableY() + tableHeight, 206, 1).blit(graphics);
+        edge.copy().dest(x + 8, y + desktopTableY(), 1, tableHeight).blit(graphics);
+        edge.copy().dest(x + 213, y + desktopTableY(), 1, tableHeight).blit(graphics);
     }
 
     @Override
     public void drawFG(GuiGraphicsExtractor guiGraphics, int offsetX, int offsetY, int mouseX, int mouseY) {
         super.drawFG(guiGraphics, offsetX, offsetY, mouseX, mouseY);
 
-        if (status != null) {
-            this.table.render(guiGraphics, mouseX, mouseY, status.getEntries(), scrollbar.getCurrentScroll());
+        this.table.render(guiGraphics, mouseX, mouseY, getVisualEntries(), scrollbar.getCurrentScroll());
+        if (isDesktopHosted() && getVisualEntries().isEmpty()) {
+            int textX = 15;
+            String messageKey = desktopCraftingMessageKey();
+            var message = Component.translatable("gui.ae2.DesktopHint." + messageKey);
+            var lines = font.split(message, 192);
+            int tableHeight = Math.max(1, (imageHeight - 28 - desktopTableY()) / 23) * 23 - 1;
+            var source = getStyle().getBackground();
+            source.copy().src(source.getSrcX() + 15, source.getSrcY() + 25, 1, 1)
+                    .dest(9, desktopTableY(), 204, tableHeight).blit(guiGraphics);
+            drawDesktopTableOutline(guiGraphics, 0, 0, tableHeight);
+            int textY = desktopTableY() + (tableHeight - lines.size() * (font.lineHeight + 2)) / 2;
+            for (var line : lines) {
+                guiGraphics.text(font, line, textX, textY, appeng.client.gui.DesktopChrome.TEXT, false);
+                textY += font.lineHeight + 2;
+            }
         }
     }
 

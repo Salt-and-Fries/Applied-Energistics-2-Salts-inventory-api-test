@@ -70,6 +70,14 @@ public class CraftingCPUMenu extends AEBaseMenu {
     public CpuSelectionMode schedulingMode = CpuSelectionMode.ANY;
     @GuiSync(1)
     public boolean cantStoreItems = false;
+    @GuiSync(2)
+    public boolean cpuStatusReady;
+    @GuiSync(3)
+    public boolean cpuAvailable;
+    @GuiSync(4)
+    public boolean hasActiveJob;
+    @GuiSync(5)
+    public int cpuStatusSerial = -1;
 
     public CraftingCPUMenu(MenuType<?> menuType, int id, Inventory ip, Object te) {
         super(menuType, id, ip, te);
@@ -152,6 +160,12 @@ public class CraftingCPUMenu extends AEBaseMenu {
 
     @Override
     public void broadcastChanges() {
+        if (isServerSide()) {
+            cpuStatusReady = true;
+            cpuAvailable = cpu != null;
+            hasActiveJob = cpu != null && cpu.getJobStatus() != null;
+            cpuStatusSerial = this instanceof CraftingStatusMenu statusMenu ? statusMenu.getSelectedCpuSerial() : 0;
+        }
         if (isServerSide() && this.cpu != null) {
             this.schedulingMode = this.cpu.getSelectionMode();
             this.cantStoreItems = this.cpu.craftingLogic.isCantStoreItems();

@@ -40,6 +40,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.ComponentRenderUtils;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.events.GuiEventListener;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.input.KeyEvent;
@@ -57,7 +58,6 @@ import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import net.neoforged.neoforge.client.network.ClientPacketDistributor;
 
 import guideme.GuidesCommon;
 import guideme.PageAnchor;
@@ -97,6 +97,7 @@ import appeng.core.network.serverbound.SwapSlotsPacket;
 import appeng.helpers.InventoryAction;
 import appeng.items.tools.GuideItem;
 import appeng.menu.AEBaseMenu;
+import appeng.menu.MenuPacketScope;
 import appeng.menu.SlotSemantic;
 import appeng.menu.SlotSemantics;
 import appeng.menu.slot.AppEngSlot;
@@ -109,6 +110,676 @@ import appeng.util.ConfigMenuInventory;
 import appeng.util.Icon;
 
 public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContainerScreen<T> {
+    private boolean desktopHosted;
+    private boolean desktopInitialized;
+    private int desktopLayoutWidth;
+    private int desktopLayoutHeight;
+    private int desktopX = Integer.MIN_VALUE;
+    private int desktopY = Integer.MIN_VALUE;
+    private int desktopNaturalWidth;
+    private int desktopNaturalHeight;
+    private DesktopContentActions desktopActions;
+    private java.util.function.Consumer<AEBaseScreen<?>> desktopNavigation;
+    private static final ThreadLocal<AEBaseScreen<?>> CURRENT_DESKTOP_CONTENT = new ThreadLocal<>();
+    protected final List<Slot> desktopVirtualSlots = new ArrayList<>();
+    private int[] desktopRequestedSize;
+    private Rect2i desktopFrame = new Rect2i(0, 0, 0, 0);
+    private boolean desktopWidgetsDirty;
+    private int desktopVisibilityStamp;
+    private boolean desktopSharedToolbox;
+    private int desktopTitleRight = Integer.MAX_VALUE;
+    private Component desktopToolboxLabel;
+
+    public final void setDesktopToolboxBadge(String badge) {
+        desktopToolboxLabel = badge == null ? null
+                : Component.translatable("gui.ae2.DesktopPanel.toolboxWithBadge", badge);
+        if (menu.isDesktopToolboxCompanion() && desktopToolboxLabel != null) {
+            setTextContent(TEXT_ID_DIALOG_TITLE, desktopToolboxLabel);
+        }
+    }
+
+    public final boolean hasDesktopSharedToolbox() {
+        return desktopSharedToolbox;
+    }
+
+    public final void setDesktopSharedToolbox(boolean shared) {
+        if (desktopSharedToolbox != shared) {
+            desktopSharedToolbox = shared;
+            refreshDesktopContentLayout();
+        }
+    }
+
+    /** Local title boundary reserved by the optional window manager's actual control rectangles. */
+    public final void setDesktopTitleRight(int right) {
+        desktopTitleRight = right;
+    }
+
+    /** Full styled title, before presentation-only shortening, for the optional desktop manager. */
+    public final Component desktopManagementTitle() {
+        var text = style.getText().get(TEXT_ID_DIALOG_TITLE);
+        var override = textOverrides.get(TEXT_ID_DIALOG_TITLE);
+        if (text == null || override != null && override.isHidden()) {
+            return Component.empty();
+        }
+        return override != null && override.getContent() != null
+                ? override.getContent().copy().withStyle(text.getText().getStyle())
+                : text.getText();
+    }
+
+    public final Point desktopManagementTitlePosition() {
+        var text = style.getText().get(TEXT_ID_DIALOG_TITLE);
+        return text == null ? new Point(8, 6) : text.getPosition().resolve(getBounds(false));
+    }
+
+    public final Rect2i desktopFrame() {
+        return desktopFrame;
+    }
+
+    public final Rect2i desktopContentBounds() {
+        return new Rect2i(leftPos, topPos, Math.max(0, desktopLayoutWidth), Math.max(0, desktopLayoutHeight));
+    }
+
+    public final void refreshDesktopLayout() {
+        desktopWidgetsDirty = true;
+    }
+
+    public final void reloadDesktopResources() {
+        appeng.client.gui.style.StyleManager.refreshDesktopResources(style);
+        var generated = style.getGeneratedBackground();
+        var background = style.getBackground();
+        if (generated != null) {
+            desktopNaturalWidth = generated.getWidth();
+            desktopNaturalHeight = generated.getHeight();
+        } else if (background != null) {
+            desktopNaturalWidth = background.getSrcWidth();
+            desktopNaturalHeight = background.getSrcHeight();
+        }
+        prepareDesktop();
+        refreshDesktopContentLayout();
+    }
+
+    public final void narrateDesktop(net.minecraft.client.gui.narration.NarrationElementOutput output) {
+        for (var child : children()) {
+            if (child instanceof net.minecraft.client.gui.components.AbstractWidget widget
+                    && widget.visible && widget.active && widget.isFocused()) {
+                widget.updateNarration(output.nest());
+            }
+        }
+    }
+
+    public final void refreshDesktopContentLayout() {
+        desktopLayoutWidth = -1;
+        desktopWidgetsDirty = true;
+    }
+
+    public final String desktopResizeKind() {
+        return style.getDesktop() == null ? "fixed" : style.getDesktop().resize();
+    }
+
+    public final int desktopBackgroundColor() {
+        return style.getDesktop() == null ? DesktopChrome.SURFACE : style.getDesktop().backgroundColor();
+    }
+
+    public final boolean desktopExternalSlot(Slot slot) {
+        if (usesAeDesktopLayout()) {
+            return slot.x < 0 || slot.y < 0 || slot.x + 16 > desktopLayoutWidth
+                    || slot.y + 16 > desktopLayoutHeight;
+        }
+        return widgets.isDesktopExternalSlot(slot);
+    }
+
+    public final boolean desktopSemanticVisible(SlotSemantic semantic) {
+        return !hiddenSlots.contains(semantic)
+                && (!(this instanceof AESubScreen<?, ?>) || style.getSlots().containsKey(semantic.id()));
+    }
+
+    public final boolean desktopSlotVisible(Slot slot) {
+        var semantic = menu.getSlotSemantic(slot);
+        return slot.isActive() && slot.x > -1000 && !menu.isPlayerInventorySlot(slot)
+                && (semantic == null || desktopSemanticVisible(semantic))
+                && (!(slot instanceof AppEngSlot ae) || ae.isSlotEnabled());
+    }
+
+    public final List<Rect2i> desktopExternalBounds() {
+        return widgets.desktopExternalBounds();
+    }
+
+    public final void requestDesktopSize(int width, int height) {
+        desktopRequestedSize = new int[] { width, height };
+    }
+
+    public final int[] desktopRequestedSize() {
+        return desktopRequestedSize;
+    }
+
+    public final void prepareDesktop() {
+        if (!desktopHosted) {
+            desktopNaturalWidth = imageWidth;
+            desktopNaturalHeight = style.getTerminalStyle() == null ? imageHeight
+                    : style.getTerminalStyle().getScreenHeight(2);
+        }
+        desktopHosted = true;
+        if (style.getTerminalStyle() != null) {
+            style.getTerminalStyle().setDesktopHeaderExtraHeight(14);
+        }
+        setTextHidden(TEXT_ID_DIALOG_TITLE, style.getDesktop() != null && !style.getDesktop().showTitle());
+        setTextHidden("player_inventory_title", true);
+    }
+
+    private boolean desktopPlayerPanel() {
+        return style.getSlots().containsKey(SlotSemantics.PLAYER_INVENTORY.id())
+                && !menu.getSlots(SlotSemantics.PLAYER_INVENTORY).isEmpty();
+    }
+
+    public final int[] desktopPreferredSize() {
+        if (style.getTerminalStyle() != null) {
+            return new int[] { style.getTerminalStyle().getScreenWidth(),
+                    style.getTerminalStyle().getScreenHeight(desktopMinimumTerminalRows()) - desktopInventoryCut() };
+        }
+        var desktop = style.getDesktop();
+        if (usesAeDesktopLayout()) {
+            var generated = style.getGeneratedBackground();
+            if (generated != null && style.getBackground() == null && generated.getHeight() > 0) {
+                return new int[] { generated.getWidth(), generated.getHeight() - desktopInventoryCut() };
+            }
+            return new int[] { desktop.width(), desktop.height() };
+        }
+        if (desktop != null && style.getGeneratedBackground() != null && desktop.resize().equals("fixed")) {
+            return new int[] { style.getGeneratedBackground().getWidth(), desktop.fittedHeight(menu, style) };
+        }
+        return desktop == null ? new int[] { desktopNaturalWidth, desktopNaturalHeight }
+                : new int[] { desktop.minWidth(), desktop.minHeight() };
+    }
+
+    public final int desktopMinimumTerminalRows() {
+        var terminal = style.getTerminalStyle();
+        if (terminal == null || !usesAeDesktopLayout())
+            return 2;
+        long upgrades = menu.getSlots(SlotSemantics.UPGRADE).stream()
+                .filter(slot -> slot.isActive() && (!(slot instanceof AppEngSlot ae) || ae.isSlotEnabled())).count();
+        int housingHeight = upgrades == 0 ? 0 : 10 + (int) Math.min(8, upgrades) * 18 + 4;
+        int rows = 2;
+        while (terminal.getScreenHeight(rows) - desktopInventoryCut() < housingHeight)
+            rows++;
+        return rows;
+    }
+
+    /** The toolbar follows the outermost connected body, including a CPU selector when present. */
+    public int desktopToolbarLeft() {
+        return 0;
+    }
+
+    public final int[] desktopDefaultSize() {
+        var desktop = style.getDesktop();
+        int extra = style.getTerminalStyle() == null ? 0 : style.getTerminalStyle().getDesktopHeaderExtraHeight();
+        return desktop == null ? desktopPreferredSize() : new int[] { desktop.width(), desktop.height() + extra };
+    }
+
+    /** Explicit visible surface segments, in local GUI pixels, independent of the menu's logical slots. */
+    public List<Rect2i> desktopSurfaceSegments() {
+        return List.of(new Rect2i(0, 0, Math.max(0, desktopLayoutWidth), Math.max(0, desktopLayoutHeight)));
+    }
+
+    /** Complete the cut surface using the same resource-pack-aware AE artwork as the original screen. */
+    protected void drawDesktopBottomEdge(GuiGraphicsExtractor graphics) {
+        if (!usesAeDesktopLayout() || desktopInventoryCut() == 0) {
+            return;
+        }
+        var source = style.getTerminalStyle() == null ? style.getBackground() : style.getTerminalStyle().getBottom();
+        if (source != null && source.getSrcHeight() >= 4) {
+            source.copy().src(source.getSrcX(), source.getSrcY() + source.getSrcHeight() - 4,
+                    source.getSrcWidth(), 4).dest(leftPos, topPos + desktopLayoutHeight - 4).blit(graphics);
+        }
+    }
+
+    public final int[] desktopSnapSize(int width, int height) {
+        var terminal = style.getTerminalStyle();
+        if (usesAeDesktopLayout() && desktopResizeKind().equals("list")) {
+            var minimum = desktopPreferredSize();
+            return new int[] { minimum[0], minimum[1] + Math.max(0, (height - minimum[1]) / 18) * 18 };
+        }
+        if (terminal != null) {
+            int baseWidth = terminal.getScreenWidth();
+            if (usesAeDesktopLayout()) {
+                return new int[] { baseWidth,
+                        terminal.getScreenHeight(Math.max(desktopMinimumTerminalRows(),
+                                terminal.getPossibleRows(height + desktopInventoryCut())))
+                                - desktopInventoryCut() };
+            }
+            return new int[] { baseWidth + Math.max(0, (width - baseWidth) / 18) * 18,
+                    terminal.getScreenHeight(Math.max(2, terminal.getPossibleRows(height))) };
+        }
+        return new int[] { width, height };
+    }
+
+    final void repositionDesktopToolbox(Point origin) {
+        int index = 0;
+        for (var slot : menu.getSlots(SlotSemantics.TOOLBOX)) {
+            slot.x = origin.getX() + (index % 3) * 18;
+            slot.y = origin.getY() + (index / 3) * 18;
+            index++;
+        }
+    }
+
+    public final boolean isDesktopHosted() {
+        return desktopHosted;
+    }
+
+    public final boolean usesAeDesktopLayout() {
+        return style.getDesktop() != null && style.getDesktop().preserveAeLayout();
+    }
+
+    public final int desktopInventoryCut() {
+        return usesAeDesktopLayout() ? style.getDesktop().inventoryCut() : 0;
+    }
+
+    /** Opt-in atlas evidence, normalized to the same origin as an ordinary AE screen. */
+    public final Map<String, int[]> desktopFidelityGeometry() {
+        var result = new java.util.TreeMap<String, int[]>();
+        result.put("layout", new int[] { imageWidth, imageHeight });
+        if (desktopHosted && desktopTitleArea != null) {
+            result.put("text/dialog_title", new int[] { desktopTitleArea.getX(), desktopTitleArea.getY(),
+                    desktopRenderedTitleWidth, desktopTitleArea.getHeight() });
+        }
+        var occurrences = new java.util.HashMap<String, Integer>();
+        for (var child : children()) {
+            if (child instanceof net.minecraft.client.gui.components.AbstractWidget widget && widget.visible) {
+                String key = "widget/" + widget.getClass().getSimpleName() + "/" + widget.getMessage().getString();
+                int occurrence = occurrences.merge(key, 1, Integer::sum);
+                result.put(key + "/" + occurrence, new int[] { widget.getX() - leftPos, widget.getY() - topPos,
+                        widget.getWidth(), widget.getHeight() });
+            }
+        }
+        occurrences.clear();
+        if (usesAeDesktopLayout()) {
+            int barIndex = 0;
+            for (var toolbar : widgets.desktopToolbars()) {
+                int columnIndex = 0, buttonIndex = 0;
+                for (var column : toolbar.desktopBackingColumns()) {
+                    result.put("backing/toolbar/" + barIndex + "/" + columnIndex++, new int[] {
+                            column.getX(), column.getY(), column.getWidth(), column.getHeight() });
+                }
+                for (var button : toolbar.buttons()) {
+                    if (button.visible) {
+                        var paint = appeng.client.gui.widgets.VerticalButtonBar.desktopPaintBounds(button);
+                        result.put("paint/toolbar/" + barIndex + "/" + buttonIndex++, new int[] {
+                                paint.getX() - leftPos, paint.getY() - topPos, paint.getWidth(), paint.getHeight() });
+                    }
+                }
+                barIndex++;
+            }
+        }
+        for (var slot : desktopSlots()) {
+            if (menu.isPlayerInventorySlot(slot) || slot.x < -1000 || !slot.isActive()) {
+                continue;
+            }
+            var semantic = menu.getSlotSemantic(slot);
+            String key = "slot/" + (semantic == null ? slot.getClass().getSimpleName() : semantic.id());
+            int occurrence = occurrences.merge(key, 1, Integer::sum);
+            result.put(key + "/" + occurrence, new int[] { slot.x, slot.y });
+        }
+        return result;
+    }
+
+    public static AEBaseScreen<?> currentDesktopContent() {
+        return CURRENT_DESKTOP_CONTENT.get();
+    }
+
+    public final void setDesktopNavigation(java.util.function.Consumer<AEBaseScreen<?>> navigation) {
+        desktopNavigation = navigation;
+    }
+
+    final void clearDesktopWidgets() {
+        clearWidgets();
+    }
+
+    private boolean desktopMouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        drag_click.clear();
+        hoveredSlot = desktopSlotAt(event.x(), event.y());
+        handlingRightClick = event.button() == InputConstants.MOUSE_BUTTON_RIGHT;
+        var widgetEvent = handlingRightClick
+                ? new MouseButtonEvent(event.x(), event.y(),
+                        new MouseButtonInfo(InputConstants.MOUSE_BUTTON_LEFT, event.buttonInfo().modifiers()))
+                : event;
+        try {
+            if (widgets.onMouseDown(getMousePoint(event.x(), event.y()), event.button())) {
+                return true;
+            }
+            for (var widget : children()) {
+                if (widget.mouseClicked(widgetEvent, doubleClick)) {
+                    setFocused(widget);
+                    setDragging(event.button() == InputConstants.MOUSE_BUTTON_LEFT);
+                    return true;
+                }
+            }
+        } finally {
+            handlingRightClick = false;
+        }
+        setFocused(null);
+        var slot = hoveredSlot;
+        if (slot == null) {
+            return false;
+        }
+        var pick = InputConstants.Type.MOUSE.getOrCreate(event.button());
+        if (minecraft.options.keyPickItem.isActiveAndMatches(pick) && handlePickBlock(slot)) {
+            return true;
+        }
+        boolean custom = desktopVirtualSlots.contains(slot) || slot instanceof FakeSlot
+                || slot instanceof CraftingTermSlot || InputConstants.isKeyDown(InputConstants.KEY_SPACE)
+                || (event.button() == InputConstants.MOUSE_BUTTON_RIGHT
+                        && getEmptyingAction(slot, menu.getCarried()) != null);
+        if (!custom) {
+            return false; // Real slot gestures belong exclusively to the desktop.
+        }
+        if (minecraft.options.keyPickItem.isActiveAndMatches(pick)) {
+            slotClicked(slot, slot.index, 2, ContainerInput.CLONE);
+            return true;
+        }
+        if (event.button() != InputConstants.MOUSE_BUTTON_LEFT
+                && event.button() != InputConstants.MOUSE_BUTTON_RIGHT) {
+            return false;
+        }
+        int button = event.button() == InputConstants.MOUSE_BUTTON_RIGHT ? 1 : 0;
+        slotClicked(slot, slot.index, button,
+                minecraft.hasShiftDown() ? ContainerInput.QUICK_MOVE : ContainerInput.PICKUP);
+        return true;
+    }
+
+    @Override
+    public boolean keyPressed(KeyEvent event) {
+        if (!desktopHosted) {
+            return super.keyPressed(event);
+        }
+        var focused = getFocused();
+        if (focused != null && focused.keyPressed(event)) {
+            return true;
+        }
+        if (event.key() == InputConstants.KEY_TAB) {
+            var navigation = new net.minecraft.client.gui.navigation.FocusNavigationEvent.TabNavigation(
+                    !event.hasShiftDown());
+            var path = nextFocusPath(navigation);
+            if (path == null) {
+                clearFocus();
+                path = nextFocusPath(navigation);
+            }
+            if (path != null) {
+                changeFocus(path);
+            }
+            return true;
+        }
+        if (event.isEscape() || (!desktopWantsTextInput()
+                && minecraft.options.keyInventory.isActiveAndMatches(InputConstants.getKey(event)))) {
+            closeCurrentMenu();
+            return true;
+        }
+        var slot = getSlotUnderMouse();
+        if (slot != null && (desktopVirtualSlots.contains(slot) || slot instanceof FakeSlot
+                || slot instanceof CraftingTermSlot)) {
+            if (checkHotbarKeyPressed(event)) {
+                return true;
+            }
+            if (minecraft.options.keyPickItem.matches(event)) {
+                slotClicked(slot, slot.index, 0, ContainerInput.CLONE);
+                return true;
+            }
+            if (minecraft.options.keyDrop.matches(event)) {
+                slotClicked(slot, slot.index, event.hasControlDown() ? 1 : 0, ContainerInput.THROW);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Positions the actual AE controls in a desktop content rectangle; never installs a game screen. */
+    public final void layoutDesktop(int x, int y, int contentWidth, int contentHeight, Rect2i frame) {
+        desktopFrame = frame;
+        if (desktopInitialized) {
+            updateBeforeRender();
+        }
+        int visibility = widgets.desktopVisibilityStamp();
+        desktopWidgetsDirty |= desktopVisibilityStamp != visibility;
+        if (desktopRequestedSize != null && contentWidth == desktopRequestedSize[0]
+                && contentHeight == desktopRequestedSize[1]) {
+            desktopRequestedSize = null;
+        }
+        boolean rebuild = !desktopInitialized || desktopLayoutWidth != contentWidth
+                || desktopLayoutHeight != contentHeight;
+        if (rebuild) {
+            var focus = getFocused();
+            imageWidth = contentWidth;
+            imageHeight = contentHeight + desktopInventoryCut();
+            this.init(contentWidth, imageHeight + 2 * config.getTerminalMargin());
+            desktopInitialized = true;
+            desktopLayoutWidth = contentWidth;
+            desktopLayoutHeight = contentHeight;
+            if (focus != null) {
+                setFocused(focus);
+            }
+        }
+        leftPos = x;
+        topPos = y;
+        if (rebuild || desktopWidgetsDirty || desktopX != x || desktopY != y) {
+            widgets.populateDesktop(this::addRenderableWidget, getBounds(true), this);
+            desktopX = x;
+            desktopY = y;
+            desktopWidgetsDirty = false;
+            desktopVisibilityStamp = visibility;
+        }
+    }
+
+    public final void saveDesktopPreferences(net.minecraft.nbt.CompoundTag tag) {
+        widgets.saveDesktopPreferences(tag);
+    }
+
+    public final void loadDesktopPreferences(net.minecraft.nbt.CompoundTag tag) {
+        widgets.loadDesktopPreferences(tag);
+    }
+
+    /** Content-specific cleanup without invoking an ordinary container screen's close protocol. */
+    public void desktopClosed() {
+        cancelDesktopPointer();
+    }
+
+    public final void withDesktopActions(DesktopContentActions actions, Runnable callback) {
+        var previous = desktopActions;
+        var previousContent = CURRENT_DESKTOP_CONTENT.get();
+        desktopActions = actions;
+        CURRENT_DESKTOP_CONTENT.set(this);
+        try {
+            callback.run();
+        } finally {
+            desktopActions = previous;
+            if (previousContent == null) {
+                CURRENT_DESKTOP_CONTENT.remove();
+            } else {
+                CURRENT_DESKTOP_CONTENT.set(previousContent);
+            }
+        }
+    }
+
+    public final List<Slot> desktopSlots() {
+        var result = new ArrayList<>(menu.slots);
+        result.addAll(desktopVirtualSlots);
+        for (var slot : menu.clientSideSlots()) {
+            if (!result.contains(slot)) {
+                result.add(slot);
+            }
+        }
+        return result;
+    }
+
+    public final Slot desktopSlotAt(double x, double y) {
+        for (var slot : desktopSlots()) {
+            if (desktopSlotVisible(slot) && isHovering(slot, x, y)) {
+                return slot;
+            }
+        }
+        return null;
+    }
+
+    public final void extractDesktopContent(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
+        updateBeforeRender();
+        widgets.updateBeforeRender();
+        hoveredSlot = desktopSlotAt(mouseX, mouseY);
+        drawBG(graphics, leftPos, topPos, mouseX, mouseY, 0);
+        drawDesktopBottomEdge(graphics);
+        if (usesAeDesktopLayout()) {
+            for (var slot : desktopSlots()) {
+                if (!menu.isPlayerInventorySlot(slot) && slot instanceof IOptionalSlot optional) {
+                    drawOptionalSlotBackground(graphics, optional, false);
+                }
+            }
+        }
+        if (!usesAeDesktopLayout() && (menu instanceof appeng.menu.implementations.InscriberMenu
+                || menu instanceof appeng.menu.implementations.CondenserMenu
+                || menu instanceof appeng.menu.implementations.QuartzKnifeMenu
+                || menu instanceof appeng.menu.implementations.SpatialIOPortMenu)) {
+            var input = menu.getSlots(SlotSemantics.MACHINE_INPUT).getFirst();
+            var output = menu.getSlots(SlotSemantics.MACHINE_OUTPUT).getFirst();
+            DesktopChrome.arrow(graphics, leftPos + (input.x + 16 + output.x - 23) / 2,
+                    topPos + output.y);
+        }
+        widgets.drawBackgroundLayer(graphics, getBounds(true), getMousePoint(mouseX, mouseY));
+        graphics.pose().pushMatrix();
+        try {
+            graphics.pose().translate(leftPos, topPos);
+            extractLabels(graphics, mouseX, mouseY);
+            for (var slot : desktopSlots()) {
+                if (!menu.slots.contains(slot) && desktopSlotVisible(slot)) {
+                    if (!usesAeDesktopLayout()) {
+                        DesktopChrome.slot(graphics, slot.x, slot.y);
+                    }
+                    extractSlot(graphics, slot, mouseX, mouseY);
+                }
+            }
+            drawDesktopBodyOverlayHints(graphics);
+        } finally {
+            graphics.pose().popMatrix();
+        }
+        for (var renderable : renderables) {
+            if (!widgets.isDesktopExternalButton(renderable)) {
+                renderable.extractRenderState(graphics, mouseX, mouseY, 0);
+            }
+        }
+    }
+
+    public final void extractDesktopAttachments(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
+        widgets.drawDesktopAttachments(graphics, mouseX, mouseY);
+        if (usesAeDesktopLayout()) {
+            graphics.pose().pushMatrix();
+            graphics.pose().translate(leftPos, topPos);
+            for (var entry : style.getText().entrySet()) {
+                var position = entry.getValue().getPosition().resolve(getBounds(false));
+                if (position.getX() < 0 || position.getY() < 0 || position.getX() >= desktopLayoutWidth) {
+                    drawText(graphics, entry.getValue(), textOverrides.get(entry.getKey()));
+                }
+            }
+            graphics.pose().popMatrix();
+        }
+        drawDesktopOverlayHints(graphics);
+    }
+
+    /** Draw the original AE item/icon appearance; hit testing and gestures still belong to the API. */
+    public final void extractDesktopRealSlots(GuiGraphicsExtractor graphics, boolean external, int mouseX, int mouseY) {
+        extractDesktopRealSlots(graphics, external, mouseX, mouseY, slot -> null);
+    }
+
+    public final void extractDesktopRealSlots(GuiGraphicsExtractor graphics, boolean external, int mouseX, int mouseY,
+            java.util.function.Function<Slot, DesktopSlotPresentation> presentation) {
+        graphics.pose().pushMatrix();
+        try {
+            graphics.pose().translate(leftPos, topPos);
+            for (var slot : menu.slots) {
+                if (desktopSlotVisible(slot) && desktopExternalSlot(slot) == external) {
+                    if (slot == hoveredSlot && slot.isHighlightable()) {
+                        graphics.blitSprite(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED,
+                                net.minecraft.resources.Identifier
+                                        .withDefaultNamespace("container/slot_highlight_back"),
+                                slot.x - 4, slot.y - 4, 24, 24);
+                    }
+                    var appearance = presentation.apply(slot);
+                    if (appearance == null) {
+                        extractSlot(graphics, slot, mouseX, mouseY);
+                    } else {
+                        var displayed = appearance.stack();
+                        if (slot instanceof AppEngSlot aeSlot) {
+                            drawAppEngSlotArtwork(graphics, aeSlot, displayed);
+                        }
+                        if (appearance.preview()) {
+                            graphics.fill(slot.x, slot.y, slot.x + 16, slot.y + 16, 0x80FFFFFF);
+                        }
+                        graphics.item(displayed, slot.x, slot.y);
+                        graphics.itemDecorations(font, displayed, slot.x, slot.y, appearance.countText());
+                    }
+                    if (slot == hoveredSlot && slot.isHighlightable()) {
+                        graphics.blitSprite(net.minecraft.client.renderer.RenderPipelines.GUI_TEXTURED,
+                                net.minecraft.resources.Identifier
+                                        .withDefaultNamespace("container/slot_highlight_front"),
+                                slot.x - 4, slot.y - 4, 24, 24);
+                    }
+                }
+            }
+        } finally {
+            graphics.pose().popMatrix();
+        }
+    }
+
+    protected void drawDesktopOverlayHints(GuiGraphicsExtractor graphics) {
+    }
+
+    protected void drawDesktopBodyOverlayHints(GuiGraphicsExtractor graphics) {
+    }
+
+    public final void extractDesktopTooltip(GuiGraphicsExtractor graphics, int x, int y) {
+        hoveredSlot = desktopSlotAt(x, y);
+        renderTooltips(graphics, x, y);
+    }
+
+    public final void extractDesktopSlotDecorations(GuiGraphicsExtractor graphics) {
+        extractDesktopSlotDecorations(graphics, false);
+    }
+
+    public final void extractDesktopSlotDecorations(GuiGraphicsExtractor graphics, boolean external) {
+        graphics.pose().pushMatrix();
+        try {
+            graphics.pose().translate(leftPos, topPos);
+            for (var slot : menu.slots) {
+                if (slot instanceof AppEngSlot ae && slot.isActive() && !menu.isPlayerInventorySlot(slot)
+                        && ae.x > -1000 && desktopExternalSlot(slot) == external) {
+                    if ((ae.renderIconWithItem() || ae.getItem().isEmpty()) && ae.isSlotEnabled()
+                            && ae.getIcon() != null) {
+                        Blitter.icon(ae.getIcon()).dest(ae.x, ae.y).opacity(ae.getOpacityOfIcon()).blit(graphics);
+                    }
+                    if (!ae.isValid()) {
+                        graphics.fill(ae.x, ae.y, ae.x + 16, ae.y + 16, 0x66FF6666);
+                    }
+                }
+            }
+        } finally {
+            graphics.pose().popMatrix();
+        }
+    }
+
+    public final boolean desktopWantsTextInput() {
+        return getFocused() instanceof EditBox box && box.isFocused();
+    }
+
+    public final void cancelDesktopPointer() {
+        drag_click.clear();
+        setDragging(false);
+        widgets.cancelPointer();
+    }
+
+    protected final void closeCurrentMenu() {
+        if (desktopHosted) {
+            if (desktopActions != null) {
+                desktopActions.close();
+            }
+        } else {
+            getPlayer().closeContainer();
+        }
+    }
+
     private static final Logger LOG = LoggerFactory.getLogger(AEBaseScreen.class);
 
     private static final Point HIDDEN_SLOT_POS = new Point(-9999, -9999);
@@ -136,6 +807,9 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
     private Slot bl_clicked;
     private boolean handlingRightClick;
     private final Map<String, TextOverride> textOverrides = new HashMap<>();
+    private Component desktopTitleTooltip;
+    private Rect2i desktopTitleArea;
+    private int desktopRenderedTitleWidth;
     private final Set<SlotSemantic> hiddenSlots = new HashSet<>();
     protected final WidgetContainer widgets;
     protected final ScreenStyle style;
@@ -208,6 +882,13 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
     }
 
     public final void repositionSlots(SlotSemantic semantic) {
+        if (desktopHosted && (semantic == SlotSemantics.PLAYER_INVENTORY || semantic == SlotSemantics.PLAYER_HOTBAR)) {
+            for (var slot : menu.getSlots(semantic)) {
+                slot.x = -9999;
+                slot.y = -9999;
+            }
+            return;
+        }
         var position = style.getSlots().get(semantic.id());
 
         if (position.isHidden()) {
@@ -238,7 +919,7 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
         }
     }
 
-    private Rect2i getBounds(boolean absolute) {
+    final Rect2i getBounds(boolean absolute) {
         if (absolute) {
             return new Rect2i(leftPos, topPos, imageWidth, imageHeight);
         } else {
@@ -246,8 +927,8 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
         }
     }
 
-    private List<Slot> getInventorySlots() {
-        return this.menu.slots;
+    protected List<Slot> getInventorySlots() {
+        return desktopHosted ? desktopSlots() : this.menu.slots;
     }
 
     /**
@@ -326,6 +1007,24 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
      * Renders a potential tooltip (from one of the possible tooltip sources)
      */
     private void renderTooltips(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY) {
+        if (desktopHosted && desktopTitleArea != null && desktopTitleTooltip != null
+                && mouseX >= leftPos + desktopTitleArea.getX()
+                && mouseX < leftPos + desktopTitleArea.getX() + desktopTitleArea.getWidth()
+                && mouseY >= topPos + desktopTitleArea.getY()
+                && mouseY < topPos + desktopTitleArea.getY() + desktopTitleArea.getHeight()) {
+            var lines = new ArrayList<Component>();
+            lines.add(desktopTitleTooltip);
+            lines.add(Component.translatable(menu.isDesktopToolboxCompanion()
+                    ? "gui.ae2.DesktopHint.companionDrag"
+                    : "gui.ae2.DesktopHint.windowManagement")
+                    .withStyle(ChatFormatting.GRAY));
+            if (desktopToolboxLabel != null && !menu.isDesktopToolboxCompanion()) {
+                lines.add(Component.translatable("gui.ae2.DesktopHint.toolboxSource", desktopToolboxLabel)
+                        .withStyle(ChatFormatting.GRAY));
+            }
+            drawTooltip(guiGraphics, mouseX, mouseY, lines);
+            return;
+        }
         if (renderEmptyingTooltip(guiGraphics, mouseX, mouseY)) {
             return;
         } else if (this.hoveredSlot instanceof AppEngSlot appEngSlot) {
@@ -383,7 +1082,8 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
         // Max width should be half screen with some padding.
         // Vanilla will place the tooltip on the right or left of the cursor
         // automatically, but uses a 12px offset (we use 40px for some extra space)
-        int maxWidth = width / 2 - 40;
+        int maxWidth = Math.max(120,
+                (desktopHosted ? minecraft.getWindow().getGuiScaledWidth() : width) / 2 - 40);
 
         // Make the first line white
         // All lines after the first are colored gray
@@ -454,6 +1154,35 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
         Component content = text.getText();
         if (override != null && override.getContent() != null) {
             content = override.getContent().copy().withStyle(content.getStyle());
+        }
+        if (desktopHosted && text == style.getText().get(TEXT_ID_DIALOG_TITLE)
+                && text.getAlign() == TextAlignment.LEFT) {
+            int available = Math.min(imageWidth - 8, desktopTitleRight) - pos.getX();
+            for (var child : children()) {
+                if (child instanceof net.minecraft.client.gui.components.AbstractWidget widget && widget.visible
+                        && widget.getY() - topPos < pos.getY() + font.lineHeight
+                        && widget.getY() + widget.getHeight() - topPos > pos.getY()
+                        && widget.getX() - leftPos > pos.getX()) {
+                    available = Math.min(available, widget.getX() - leftPos - pos.getX() - 4);
+                }
+            }
+            available = Math.max(1, available);
+            desktopTitleTooltip = content;
+            desktopTitleArea = new Rect2i(pos.getX(), pos.getY(), available, font.lineHeight);
+            if (font.width(content) > available) {
+                String suffix = font.plainSubstrByWidth("...", available);
+                String prefix = font.plainSubstrByWidth(content.getString(),
+                        Math.max(0, available - font.width(suffix)));
+                content = Component.literal(prefix + suffix).withStyle(content.getStyle());
+                while (font.width(content) > available && !prefix.isEmpty()) {
+                    prefix = prefix.substring(0, prefix.offsetByCodePoints(prefix.length(), -1));
+                    content = Component.literal(prefix + suffix).withStyle(content.getStyle());
+                }
+            }
+        }
+
+        if (desktopHosted && text == style.getText().get(TEXT_ID_DIALOG_TITLE)) {
+            desktopRenderedTitleWidth = font.width(content);
         }
 
         // Account for max width and split into lines
@@ -557,6 +1286,9 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
 
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
+        if (desktopHosted) {
+            return desktopMouseClicked(event, doubleClick);
+        }
         this.drag_click.clear();
 
         // Handler for Pick Block mouse click in Survival mode
@@ -607,6 +1339,12 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
             return true;
         }
 
+        if (desktopHosted) {
+            var focused = getFocused();
+            setDragging(false);
+            drag_click.clear();
+            return focused != null && focused.mouseReleased(event);
+        }
         return super.mouseReleased(event);
     }
 
@@ -621,7 +1359,8 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
 
     @Override
     public boolean mouseDragged(MouseButtonEvent event, double dragX, double dragY) {
-        final Slot slot = this.getHoveredSlot(event.x(), event.y());
+        final Slot slot = desktopHosted ? desktopSlotAt(event.x(), event.y())
+                : this.getHoveredSlot(event.x(), event.y());
         var itemstack = getMenu().getCarried();
 
         Point mousePos = new Point((int) Math.round(event.x() - leftPos), (int) Math.round(event.y() - topPos));
@@ -637,12 +1376,15 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
                             event.button() == InputConstants.MOUSE_BUTTON_LEFT ? InventoryAction.PICKUP_OR_SET_DOWN
                                     : InventoryAction.PLACE_SINGLE,
                             dr.index, 0);
-                    ClientPacketDistributor.sendToServer(p);
+                    MenuPacketScope.send(p);
                 }
             }
 
             return true;
         } else {
+            if (desktopHosted) {
+                return getFocused() != null && getFocused().mouseDragged(event, dragX, dragY);
+            }
             return super.mouseDragged(event, dragX, dragY);
         }
     }
@@ -681,7 +1423,7 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
                 && mouseButton == 1 // Right-click (container click numbering)
                 && getEmptyingAction(slot, menu.getCarried()) != null) {
             var p = new InventoryActionPacket(InventoryAction.EMPTY_ITEM, slotIdx, 0);
-            ClientPacketDistributor.sendToServer(p);
+            MenuPacketScope.send(p);
             return;
         }
 
@@ -693,7 +1435,7 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
             var action = mouseButton == 1 ? InventoryAction.SPLIT_OR_PLACE_SINGLE
                     : InventoryAction.PICKUP_OR_SET_DOWN;
             var p = new InventoryActionPacket(action, slotIdx, 0);
-            ClientPacketDistributor.sendToServer(p);
+            MenuPacketScope.send(p);
             return;
         }
 
@@ -709,7 +1451,7 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
             }
 
             final InventoryActionPacket p = new InventoryActionPacket(action, slotIdx, 0);
-            ClientPacketDistributor.sendToServer(p);
+            MenuPacketScope.send(p);
 
             return;
         }
@@ -717,7 +1459,7 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
         if (slot != null && InputConstants.isKeyDown(InputConstants.KEY_SPACE)) {
             int slotNum = slot.index;
             final InventoryActionPacket p = new InventoryActionPacket(InventoryAction.MOVE_REGION, slotNum, 0);
-            ClientPacketDistributor.sendToServer(p);
+            MenuPacketScope.send(p);
             return;
         }
 
@@ -747,7 +1489,13 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
             this.disableShiftClick = false;
         }
 
-        super.slotClicked(slot, slotIdx, mouseButton, clickType);
+        if (desktopHosted) {
+            if (desktopActions != null) {
+                desktopActions.clickSlot(slotIdx, mouseButton, clickType);
+            }
+        } else {
+            super.slotClicked(slot, slotIdx, mouseButton, clickType);
+        }
     }
 
     @Override
@@ -795,7 +1543,7 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
                             if (s.getSlotIndex() == j
                                     && s.container == this.menu.getPlayerInventory()) {
                                 ServerboundPacket message = new SwapSlotsPacket(s.index, theSlot.index);
-                                ClientPacketDistributor.sendToServer(message);
+                                MenuPacketScope.send(message);
                                 return true;
                             }
                         }
@@ -819,6 +1567,9 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
 
     public void drawBG(GuiGraphicsExtractor guiGraphics, int offsetX, int offsetY, int mouseX, int mouseY,
             float partialTicks) {
+        if (desktopHosted && !usesAeDesktopLayout()) {
+            return;
+        }
 
         guiGraphics.nextStratum();
 
@@ -866,6 +1617,11 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
 
     private void renderAppEngSlot(GuiGraphicsExtractor guiGraphics, AppEngSlot s, int mouseX, int mouseY) {
         var is = s.getItem();
+        drawAppEngSlotArtwork(guiGraphics, s, is);
+        super.extractSlot(guiGraphics, s, mouseX, mouseY);
+    }
+
+    private void drawAppEngSlotArtwork(GuiGraphicsExtractor guiGraphics, AppEngSlot s, ItemStack is) {
 
         // If the slot has a background icon, render it, but only if the slot is empty
         // or it requests the icon to be always drawn
@@ -881,7 +1637,6 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
             guiGraphics.fill(s.x, s.y, 16 + s.x, 16 + s.y, 0x66ff6666);
         }
 
-        super.extractSlot(guiGraphics, s, mouseX, mouseY);
     }
 
     @Override
@@ -1048,8 +1803,15 @@ public abstract class AEBaseScreen<T extends AEBaseMenu> extends AbstractContain
             slot.y = HIDDEN_SLOT_POS.getY();
         }
 
-        minecraft.gui.screen = null;
-        minecraft.gui.setScreen(screen);
+        if (desktopHosted) {
+            if (desktopNavigation == null) {
+                throw new IllegalStateException("Desktop navigation is unavailable");
+            }
+            desktopNavigation.accept(screen);
+        } else {
+            minecraft.gui.screen = null;
+            minecraft.gui.setScreen(screen);
+        }
 
         if (!screen.savedSlotInfos.isEmpty()) {
             // Restore slot state to that of the new screen

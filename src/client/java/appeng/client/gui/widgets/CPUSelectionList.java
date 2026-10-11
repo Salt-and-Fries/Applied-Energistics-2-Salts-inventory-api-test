@@ -37,6 +37,18 @@ public class CPUSelectionList implements ICompositeWidget {
     private final Color textColor;
     private final int selectedColor;
     private final Scrollbar scrollbar;
+    private final boolean desktop;
+    private boolean desktopNarrow;
+    private Runnable selectionChanged = () -> {
+    };
+
+    public void setSelectionChanged(Runnable callback) {
+        selectionChanged = callback;
+    }
+
+    public void setDesktopNarrow(boolean narrow) {
+        desktopNarrow = narrow;
+    }
 
     // Relative to the origin of the current screen (not window)
     private Rect2i bounds = new Rect2i(0, 0, 0, 0);
@@ -44,6 +56,7 @@ public class CPUSelectionList implements ICompositeWidget {
     public CPUSelectionList(CraftingStatusMenu menu, Scrollbar scrollbar, ScreenStyle style) {
         this.menu = menu;
         this.scrollbar = scrollbar;
+        this.desktop = style.isDesktopRestyled();
         this.background = style.getImage("cpuList");
         this.buttonBg = style.getImage("cpuListButton");
         this.buttonBgSelected = style.getImage("cpuListButtonSelected");
@@ -129,6 +142,8 @@ public class CPUSelectionList implements ICompositeWidget {
     public boolean onMouseUp(Point mousePos, int button) {
         var cpu = hitTestCpu(mousePos);
         if (cpu != null) {
+            if (cpu.serial() != menu.getSelectedCpuSerial())
+                selectionChanged.run();
             menu.selectCpu(cpu.serial());
             return true;
         }
@@ -140,12 +155,16 @@ public class CPUSelectionList implements ICompositeWidget {
     private CraftingStatusMenu.CraftingCpuListEntry hitTestCpu(Point mousePos) {
         var relX = mousePos.getX() - bounds.getX();
         var relY = mousePos.getY() - bounds.getY();
-        relX -= 8;
-        if (relX < 0 || relX >= buttonBg.getSrcWidth()) {
+        relX -= desktopNarrow ? 1 : desktop ? 4 : 8;
+        if (relX < 0 || relX >= (desktopNarrow ? bounds.getWidth() - 20
+                : desktop ? bounds.getWidth() - 20 : buttonBg.getSrcWidth())) {
             return null;
         }
 
-        relY -= 19;
+        relY -= desktopNarrow ? 0 : desktop ? 4 : 19;
+        if ((desktop || desktopNarrow) && (relY < 0 || relY >= visibleRows() * (buttonBg.getSrcHeight() + 1))) {
+            return null;
+        }
         var buttonIdx = scrollbar.getCurrentScroll() + relY / (buttonBg.getSrcHeight() + 1);
         if (relY % (buttonBg.getSrcHeight() + 1) == buttonBg.getSrcHeight()) {
             // Clicked right between two buttons
@@ -166,42 +185,85 @@ public class CPUSelectionList implements ICompositeWidget {
 
     @Override
     public void updateBeforeRender() {
-        var hiddenRows = Math.max(0, menu.cpuList.cpus().size() - ROWS);
-        scrollbar.setRange(0, hiddenRows, ROWS / 3);
+        var rows = visibleRows();
+        var hiddenRows = Math.max(0, menu.cpuList.cpus().size() - rows);
+        scrollbar.setRange(0, hiddenRows, Math.max(1, rows / 3));
+    }
+
+    private int visibleRows() {
+        return desktopNarrow ? 2
+                : desktop ? Math.max(1, (bounds.getHeight() - 8) / (buttonBg.getSrcHeight() + 1)) : ROWS;
+    }
+
+    public int visibleRowCount() {
+        return visibleRows();
     }
 
     @Override
     public void drawBackgroundLayer(GuiGraphicsExtractor guiGraphics, Rect2i bounds, Point mouse) {
         var x = bounds.getX() + this.bounds.getX();
         var y = bounds.getY() + this.bounds.getY();
-        background.dest(
-                x,
-                y,
-                this.bounds.getWidth(),
-                this.bounds.getHeight()).blit(guiGraphics);
+        if (desktopNarrow) {
+            // This selector is part of the main frame, above the job table, with no nested window border.
+        } else if (desktop) {
+            appeng.client.gui.DesktopChrome.recessed(guiGraphics,
+                    new Rect2i(x, y, this.bounds.getWidth(), this.bounds.getHeight()));
+        } else {
+            background.dest(
+                    x,
+                    y,
+                    this.bounds.getWidth(),
+                    this.bounds.getHeight()).blit(guiGraphics);
+        }
 
         // Move to first button
-        x += 8;
-        y += 19;
+        x += desktopNarrow ? 1 : desktop ? 4 : 8;
+        y += desktopNarrow ? 0 : desktop ? 4 : 19;
 
         var pose = guiGraphics.pose();
 
         var font = Minecraft.getInstance().font;
         var cpus = menu.cpuList.cpus().subList(
                 Mth.clamp(scrollbar.getCurrentScroll(), 0, menu.cpuList.cpus().size()),
-                Mth.clamp(scrollbar.getCurrentScroll() + ROWS, 0, menu.cpuList.cpus().size()));
+                Mth.clamp(scrollbar.getCurrentScroll() + visibleRows(), 0, menu.cpuList.cpus().size()));
         for (var cpu : cpus) {
-            if (cpu.serial() == menu.getSelectedCpuSerial()) {
-                buttonBgSelected.dest(x, y).blit(guiGraphics);
+            if (desktopNarrow) {
+                var source = cpu.serial() == menu.getSelectedCpuSerial() ? buttonBgSelected : buttonBg;
+                int rowWidth = this.bounds.getWidth() - 20;
+                source.copy().src(source.getSrcX(), source.getSrcY(), 3, source.getSrcHeight()).dest(x, y)
+                        .blit(guiGraphics);
+                for (int dx = 3; dx < rowWidth - 3;) {
+                    int part = Math.min(source.getSrcWidth() - 6, rowWidth - 3 - dx);
+                    source.copy().src(source.getSrcX() + 3, source.getSrcY(), part, source.getSrcHeight())
+                            .dest(x + dx, y).blit(guiGraphics);
+                    dx += part;
+                }
+                source.copy()
+                        .src(source.getSrcX() + source.getSrcWidth() - 3, source.getSrcY(), 3, source.getSrcHeight())
+                        .dest(x + rowWidth - 3, y).blit(guiGraphics);
+            } else if (desktop) {
+                appeng.client.gui.DesktopChrome.button(guiGraphics,
+                        new Rect2i(x, y, this.bounds.getWidth() - 20, buttonBg.getSrcHeight()), false, false, true);
+                if (cpu.serial() == menu.getSelectedCpuSerial()) {
+                    guiGraphics.fill(x + 1, y + 1, x + this.bounds.getWidth() - 21,
+                            y + buttonBg.getSrcHeight() - 1, selectedColor);
+                }
             } else {
-                buttonBg.dest(x, y).blit(guiGraphics);
+                if (cpu.serial() == menu.getSelectedCpuSerial()) {
+                    buttonBgSelected.dest(x, y).blit(guiGraphics);
+                } else {
+                    buttonBg.dest(x, y).blit(guiGraphics);
+                }
             }
 
             var name = getCpuName(cpu);
             pose.pushMatrix();
-            pose.translate(x + 3, y + 2);
-            pose.scale(0.666f);
-            guiGraphics.text(font, name, 0, 0, textColor.toARGB(), false);
+            pose.translate(x + 3, y + (desktop || desktopNarrow ? 0 : 2));
+            pose.scale(desktop || desktopNarrow ? 1 : 0.666f);
+            guiGraphics.text(font,
+                    desktop || desktopNarrow ? Component.literal(font.plainSubstrByWidth(name.getString(),
+                            this.bounds.getWidth() - 26)) : name,
+                    0, 0, textColor.toARGB(), false);
             pose.popMatrix();
 
             var infoBar = new InfoBar();
@@ -217,7 +279,8 @@ public class CPUSelectionList implements ICompositeWidget {
                     infoBar.add(Icon.S_SUSPENDED, 0.7f, x + 58, y + 1);
 
                 // Draw a bar at the bottom of the button to indicate job progress
-                var progress = (int) (cpu.progress() * (buttonBg.getSrcWidth() - 1));
+                var progress = (int) (cpu.progress()
+                        * (desktopNarrow ? this.bounds.getWidth() - 21 : buttonBg.getSrcWidth() - 1));
                 guiGraphics.pose().pushMatrix();
                 guiGraphics.pose().translate(1, -1);
                 guiGraphics.fill(

@@ -86,7 +86,11 @@ public record FillCraftingGridFromRecipePacket(
             recipeId = stream.readResourceKey(Registries.RECIPE);
         }
 
-        var ingredientTemplates = NonNullList.withSize(stream.readInt(), ItemStack.EMPTY);
+        int ingredientCount = stream.readInt();
+        if (ingredientCount < 0 || ingredientCount > 9) {
+            throw new IllegalArgumentException("Invalid crafting grid size: " + ingredientCount);
+        }
+        var ingredientTemplates = NonNullList.withSize(ingredientCount, ItemStack.EMPTY);
         for (int i = 0; i < ingredientTemplates.size(); i++) {
             ingredientTemplates.set(i, ItemStack.OPTIONAL_STREAM_CODEC.decode(stream));
         }

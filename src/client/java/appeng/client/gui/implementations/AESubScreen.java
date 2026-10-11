@@ -21,13 +21,13 @@ package appeng.client.gui.implementations;
 import org.jetbrains.annotations.Nullable;
 
 import net.minecraft.network.chat.Component;
-import net.neoforged.neoforge.client.network.ClientPacketDistributor;
 
 import appeng.client.gui.WidgetContainer;
 import appeng.client.gui.widgets.TabButton;
 import appeng.core.network.ServerboundPacket;
 import appeng.core.network.serverbound.SwitchGuisPacket;
 import appeng.menu.ISubMenu;
+import appeng.menu.MenuPacketScope;
 import appeng.util.Icon;
 
 /**
@@ -55,7 +55,7 @@ public final class AESubScreen {
 
     public static void goBack() {
         ServerboundPacket message = SwitchGuisPacket.returnToParentMenu();
-        ClientPacketDistributor.sendToServer(message);
+        MenuPacketScope.send(message);
     }
 
 }

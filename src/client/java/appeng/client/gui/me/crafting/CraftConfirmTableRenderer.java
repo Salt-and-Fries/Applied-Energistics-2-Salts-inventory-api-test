@@ -37,6 +37,11 @@ public class CraftConfirmTableRenderer extends AbstractTableRenderer<CraftingPla
     }
 
     @Override
+    protected boolean readableRows() {
+        return screen.isDesktopHosted();
+    }
+
+    @Override
     protected List<Component> getEntryDescription(CraftingPlanSummaryEntry entry) {
         List<Component> lines = new ArrayList<>(3);
         if (entry.getStoredAmount() > 0) {

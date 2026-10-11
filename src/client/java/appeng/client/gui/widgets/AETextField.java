@@ -146,16 +146,23 @@ public class AETextField extends EditBox implements IResizableWidget, ITooltip {
 
             var bounds = getVisualBounds();
 
-            BLITTER.src(0, yOffset, 1, 12)
-                    .dest(bounds.left, bounds.top)
-                    .blit(guiGraphics);
-            var backgroundWidth = Math.min(126, bounds.right - bounds.left - 2);
-            BLITTER.src(1, yOffset, backgroundWidth, 12)
-                    .dest(bounds.left + 1, bounds.top)
-                    .blit(guiGraphics);
-            BLITTER.src(127, yOffset, 1, 12)
-                    .dest(bounds.right - 1, bounds.top)
-                    .blit(guiGraphics);
+            if (style.isDesktopRestyled()) {
+                appeng.client.gui.DesktopChrome.textField(guiGraphics,
+                        new Rect2i(bounds.left, bounds.top, bounds.right - bounds.left, height + 2 * PADDING));
+            } else {
+                BLITTER.src(0, yOffset, 1, 12)
+                        .dest(bounds.left, bounds.top)
+                        .blit(guiGraphics);
+                int interior = bounds.right - bounds.left - 2;
+                for (int x = 0; x < interior; x += 126) {
+                    BLITTER.src(1, yOffset, Math.min(126, interior - x), 12)
+                            .dest(bounds.left + 1 + x, bounds.top)
+                            .blit(guiGraphics);
+                }
+                BLITTER.src(127, yOffset, 1, 12)
+                        .dest(bounds.right - 1, bounds.top)
+                        .blit(guiGraphics);
+            }
 
             super.extractWidgetRenderState(guiGraphics, mouseX, mouseY, partial);
 

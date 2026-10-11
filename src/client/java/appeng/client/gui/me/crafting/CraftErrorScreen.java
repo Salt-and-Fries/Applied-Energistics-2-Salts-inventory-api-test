@@ -21,6 +21,10 @@ public class CraftErrorScreen extends AESubScreen<CraftConfirmMenu, CraftConfirm
     public CraftErrorScreen(CraftConfirmScreen parent, CraftingSubmitErrorCode errorCode, Object details) {
         super(parent, "/screens/craft_error.json");
 
+        if (parent.isDesktopHosted()) {
+            setTextContent(TEXT_ID_DIALOG_TITLE, Component.translatable("gui.ae2.DesktopHint.craftingError"));
+        }
+
         var errorText = switch (errorCode) {
             case INCOMPLETE_PLAN -> GuiText.CraftErrorIncompletePlan.text();
             case NO_CPU_FOUND -> GuiText.CraftErrorNoCpuFound.text();
@@ -68,6 +72,12 @@ public class CraftErrorScreen extends AESubScreen<CraftConfirmMenu, CraftConfirm
         };
 
         setTextContent("errorText", errorText);
+        if (style.isDesktopRestyled()) {
+            int textHeight = net.minecraft.client.Minecraft.getInstance().font.split(errorText, 200).size() * 11;
+            int slotY = 22 + textHeight;
+            style.getSlots().get(SlotSemantics.MISSING_INGREDIENT.id()).setTop(slotY);
+            style.getGeneratedBackground().setHeight(slotY + (details instanceof GenericStack ? 22 : 0) + 30);
+        }
 
         widgets.addButton("replan", GuiText.CraftErrorReplan.text(), () -> {
             returnToParent();

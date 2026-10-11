@@ -50,6 +50,21 @@ public class TerminalStyle {
      */
     private Blitter bottom;
 
+    // A second header row in the hosted presentation keeps the title clear of the search editor.
+    private int desktopHeaderExtraHeight;
+
+    public int getHeaderHeight() {
+        return header.getSrcHeight() + desktopHeaderExtraHeight;
+    }
+
+    public int getDesktopHeaderExtraHeight() {
+        return desktopHeaderExtraHeight;
+    }
+
+    public void setDesktopHeaderExtraHeight(int height) {
+        desktopHeaderExtraHeight = height;
+    }
+
     /**
      * Currently only 9 is supported here.
      */
@@ -132,7 +147,7 @@ public class TerminalStyle {
     }
 
     public int getPossibleRows(int availableHeight) {
-        return (availableHeight - header.getSrcHeight() - bottom.getSrcHeight()) / row.getSrcHeight();
+        return (availableHeight - getHeaderHeight() - bottom.getSrcHeight()) / row.getSrcHeight();
     }
 
     /**
@@ -141,7 +156,7 @@ public class TerminalStyle {
     public Point getSlotPos(int row, int col) {
         int x = 7 + col * 18;
 
-        int y = header.getSrcHeight();
+        int y = getHeaderHeight();
         if (row > 0) {
             y += firstRow.getSrcHeight();
             y += (row - 1) * this.row.getSrcHeight();
@@ -155,7 +170,7 @@ public class TerminalStyle {
      * Calculates the height of the screen given a number of rows to display.
      */
     public int getScreenHeight(int rows) {
-        int result = header.getSrcHeight();
+        int result = getHeaderHeight();
         result += firstRow.getSrcHeight();
         result += Math.max(0, rows - 2) * row.getSrcHeight();
         result += lastRow.getSrcHeight();

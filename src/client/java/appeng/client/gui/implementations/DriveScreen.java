@@ -34,4 +34,20 @@ public class DriveScreen extends AEBaseScreen<DriveMenu> {
         widgets.addOpenPriorityButton();
     }
 
+    @Override
+    public void drawBG(net.minecraft.client.gui.GuiGraphicsExtractor graphics, int x, int y,
+            int mouseX, int mouseY, float partialTicks) {
+        if (isDesktopHosted() && usesAeDesktopLayout()) {
+            var source = getStyle().getBackground();
+            source.copy().src(source.getSrcX(), source.getSrcY(), source.getSrcWidth(), 12)
+                    .dest(x, y).blit(graphics);
+            source.copy().src(source.getSrcX(), source.getSrcY() + 4, source.getSrcWidth(), 2)
+                    .dest(x, y + 12).blit(graphics);
+            source.copy().src(source.getSrcX(), source.getSrcY() + 12,
+                    source.getSrcWidth(), source.getSrcHeight() - 12).dest(x, y + 14).blit(graphics);
+        } else {
+            super.drawBG(graphics, x, y, mouseX, mouseY, partialTicks);
+        }
+    }
+
 }

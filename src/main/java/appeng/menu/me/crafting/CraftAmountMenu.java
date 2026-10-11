@@ -26,7 +26,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.level.Level;
-import net.neoforged.neoforge.client.network.ClientPacketDistributor;
 
 import appeng.api.networking.crafting.CalculationStrategy;
 import appeng.api.stacks.AEKey;
@@ -37,6 +36,7 @@ import appeng.core.network.serverbound.ConfirmAutoCraftPacket;
 import appeng.menu.AEBaseMenu;
 import appeng.menu.ISubMenu;
 import appeng.menu.MenuOpener;
+import appeng.menu.MenuPacketScope;
 import appeng.menu.SlotSemantics;
 import appeng.menu.implementations.MenuTypeBuilder;
 import appeng.menu.locator.MenuHostLocator;
@@ -82,9 +82,8 @@ public class CraftAmountMenu extends AEBaseMenu implements ISubMenu {
      * Opens the craft amount screen for the given player.
      */
     public static void open(ServerPlayer player, MenuHostLocator locator, AEKey whatToCraft, int initialAmount) {
-        MenuOpener.open(CraftAmountMenu.TYPE, player, locator);
-
-        if (player.containerMenu instanceof CraftAmountMenu cca) {
+        var cca = MenuOpener.openAndGetMenu(CraftAmountMenu.TYPE, player, locator);
+        if (cca != null) {
             cca.setWhatToCraft(whatToCraft, initialAmount);
             cca.broadcastChanges();
         }
@@ -110,7 +109,7 @@ public class CraftAmountMenu extends AEBaseMenu implements ISubMenu {
     public void confirm(int amount, boolean craftMissingAmount, boolean autoStart) {
         if (!isServerSide()) {
             ServerboundPacket message = new ConfirmAutoCraftPacket(amount, craftMissingAmount, autoStart);
-            ClientPacketDistributor.sendToServer(message);
+            MenuPacketScope.send(message);
             return;
         }
 
@@ -139,9 +138,8 @@ public class CraftAmountMenu extends AEBaseMenu implements ISubMenu {
         if (locator != null) {
             var player = getPlayer();
             if (amount > 0) {
-                MenuOpener.open(CraftConfirmMenu.TYPE, player, locator);
-
-                if (player.containerMenu instanceof CraftConfirmMenu ccc) {
+                var ccc = MenuOpener.openAndGetMenu(CraftConfirmMenu.TYPE, player, locator);
+                if (ccc != null) {
                     ccc.setAutoStart(autoStart);
                     ccc.planJob(
                             whatToCraft,

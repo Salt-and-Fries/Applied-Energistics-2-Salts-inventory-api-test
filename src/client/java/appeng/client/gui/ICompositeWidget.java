@@ -31,6 +31,9 @@ import net.minecraft.client.renderer.Rect2i;
 import appeng.client.Point;
 
 public interface ICompositeWidget {
+    /** Cancel a pointer gesture without treating it as a committed release. */
+    default void cancelPointer() {
+    }
 
     default boolean isVisible() {
         return true;

@@ -47,6 +47,12 @@ public class TerminalSettingsScreen<C extends MEStorageMenu> extends AESubScreen
                 GuiText.TerminalSettingsNotifyForFinishedJobs.text(), this::save);
         clearGridOnCloseCheckbox = widgets.addCheckbox("clearGridOnCloseCheckbox",
                 GuiText.TerminalSettingsClearGridOnClose.text(), this::save);
+        if (style.isDesktopRestyled()) {
+            pinAutoCraftedItemsCheckbox.setDesktopLabel(Component.translatable("gui.ae2.DesktopSettings.pinCrafted"));
+            notifyForFinishedCraftingJobsCheckbox
+                    .setDesktopLabel(Component.translatable("gui.ae2.DesktopSettings.notifyCrafted"));
+            clearGridOnCloseCheckbox.setDesktopLabel(Component.translatable("gui.ae2.DesktopSettings.clearGrid"));
+        }
 
         useInternalSearchRadio = widgets.addCheckbox("useInternalSearchRadio",
                 GuiText.SearchSettingsUseInternalSearch.text(), this::switchToAeSearch);
@@ -71,10 +77,45 @@ public class TerminalSettingsScreen<C extends MEStorageMenu> extends AESubScreen
 
     @Override
     protected void init() {
+        if (isDesktopHosted()) {
+            int y = 24;
+            y = placeCheckbox("pinAutoCraftedItemsCheckbox", pinAutoCraftedItemsCheckbox, 8, y, imageWidth - 16);
+            y = placeCheckbox("notifyForFinishedCraftingJobsCheckbox", notifyForFinishedCraftingJobsCheckbox, 8, y,
+                    imageWidth - 16);
+            y = placeCheckbox("clearGridOnCloseCheckbox", clearGridOnCloseCheckbox, 8, y, imageWidth - 16);
+            style.getText().get("search_settings_title").getPosition().setTop(y + 8);
+            y += 22;
+            int radioWidth = (imageWidth - 24) / 2;
+            int radioEnd = placeCheckbox("useInternalSearchRadio", useInternalSearchRadio, 8, y, radioWidth);
+            y = Math.max(radioEnd, placeCheckbox("useExternalSearchRadio", useExternalSearchRadio,
+                    imageWidth / 2 + 4, y, radioWidth)) + 2;
+            y = placeCheckbox("rememberCheckbox", rememberCheckbox, 8, y, imageWidth - 16);
+            y = placeCheckbox("autoFocusCheckbox", autoFocusCheckbox, 8, y, imageWidth - 16);
+            y = placeCheckbox("syncWithExternalCheckbox", syncWithExternalCheckbox, 8, y, imageWidth - 16);
+            if (clearExternalCheckbox.visible) {
+                y = placeCheckbox("clearExternalCheckbox", clearExternalCheckbox, 8, y, imageWidth - 16);
+            }
+            style.getGeneratedBackground().setHeight(y + 4);
+        }
         super.init();
 
         // The screen JSON includes the toolbox, but we don't actually have a need for it here
         setSlotsHidden(SlotSemantics.TOOLBOX, true);
+    }
+
+    private int placeCheckbox(String id, AECheckbox checkbox, int x, int y, int width) {
+        if (checkbox == null || !checkbox.visible) {
+            return y;
+        }
+        int height = Math.max(AECheckbox.SIZE,
+                font.split(checkbox.displayLabel(), width - (checkbox.isRadio() ? 16 : 26))
+                        .size() * font.lineHeight + 2);
+        var position = style.getWidget(id);
+        position.setLeft(x);
+        position.setTop(y);
+        checkbox.setWidth(width);
+        checkbox.setHeight(height);
+        return y + height + 4;
     }
 
     private void switchToAeSearch() {
@@ -112,6 +153,9 @@ public class TerminalSettingsScreen<C extends MEStorageMenu> extends AESubScreen
         syncWithExternalCheckbox.visible = useInternalSearchRadio.isSelected();
 
         clearExternalCheckbox.visible = useExternalSearchRadio.isSelected();
+        if (isDesktopHosted()) {
+            refreshDesktopContentLayout();
+        }
     }
 
     private void save() {

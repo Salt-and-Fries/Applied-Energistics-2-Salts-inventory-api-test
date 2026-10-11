@@ -272,6 +272,7 @@ public class AppEngClient extends AppEngBase {
         NeoForge.EVENT_BUS.addListener((ClientTickEvent.Post e) -> {
             tickPinnedKeys(Minecraft.getInstance());
             Hotkeys.checkHotkeys();
+            appeng.client.gui.DesktopWindowQa.tick(Minecraft.getInstance());
         });
 
         container.registerExtensionPoint(IConfigScreenFactory.class,

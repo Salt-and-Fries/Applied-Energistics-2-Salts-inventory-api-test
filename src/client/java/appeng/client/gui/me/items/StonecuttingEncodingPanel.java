@@ -60,7 +60,7 @@ public final class StonecuttingEncodingPanel extends EncodingModePanel {
 
     @Override
     public void drawBackgroundLayer(GuiGraphicsExtractor guiGraphics, Rect2i bounds, Point mouse) {
-        BG.dest(bounds.getX() + 8, bounds.getY() + bounds.getHeight() - 165).blit(guiGraphics);
+        drawModeBackground(guiGraphics, bounds, BG);
         drawRecipes(guiGraphics, bounds, mouse);
     }
 
@@ -90,7 +90,15 @@ public final class StonecuttingEncodingPanel extends EncodingModePanel {
 
             var renderX = bounds.getX() + slotBounds.getX();
             var renderY = bounds.getY() + slotBounds.getY();
-            blitter.dest(renderX, renderY).blit(guiGraphics);
+            if ((screen.isDesktopHosted() && !screen.usesAeDesktopLayout())) {
+                appeng.client.gui.DesktopChrome.slot(guiGraphics, renderX + 2, renderY + 3);
+                if (selected || mouse.isIn(slotBounds)) {
+                    guiGraphics.fill(renderX + 2, renderY + 3, renderX + 18, renderY + 19,
+                            selected ? 0x7799CCFF : 0x55FFFFFF);
+                }
+            } else {
+                blitter.dest(renderX, renderY).blit(guiGraphics);
+            }
             ItemStack resultItem = recipe.value().result().create();
 
             if (selected || mouse.isIn(slotBounds)) {

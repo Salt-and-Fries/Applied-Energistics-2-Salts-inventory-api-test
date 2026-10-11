@@ -110,6 +110,39 @@ import appeng.menu.me.networktool.NetworkToolMenu;
  * This class registers our screens.
  */
 public final class InitScreens {
+    private static final Map<MenuType<?>, StyledScreenFactory<?, ?>> DESKTOP_FACTORIES = new IdentityHashMap<>();
+
+    public static int[] desktopDefaultContentSize(AEBaseMenu menu) {
+        if (menu instanceof PatternAccessTermMenu) {
+            return PatternAccessTermScreen.desktopDefaultContentSize();
+        }
+        var style = StyleManager.loadStyleDoc(desktopStylePath(MENU_STYLES.get(menu.getType())));
+        if (style.getTerminalStyle() != null) {
+            var terminal = style.getTerminalStyle();
+            terminal.setDesktopHeaderExtraHeight(14);
+            int available = net.minecraft.client.Minecraft.getInstance().getWindow().getGuiScaledHeight()
+                    - 2 * appeng.core.AEConfig.instance().getTerminalMargin();
+            int rows = Math.max(2, appeng.core.AEConfig.instance().getTerminalStyle()
+                    .getRows(terminal.getPossibleRows(available)));
+            return new int[] { terminal.getScreenWidth(), terminal.getScreenHeight(rows)
+                    - style.getDesktop().inventoryCut() };
+        }
+        return new int[] { style.getDesktop().width(), style.getDesktop().fittedHeight(menu, style) };
+    }
+
+    public static String desktopStylePath(String ordinaryPath) {
+        return ordinaryPath.replace("/screens/", "/screens/desktop/");
+    }
+
+    @SuppressWarnings("unchecked")
+    public static AEBaseScreen<AEBaseMenu> createDesktopContent(AEBaseMenu menu, Inventory inventory, Component title) {
+        var factory = (StyledScreenFactory<AEBaseMenu, AEBaseScreen<AEBaseMenu>>) DESKTOP_FACTORIES.get(menu.getType());
+        if (factory == null) {
+            throw new IllegalArgumentException("No AE UI factory for " + menu.getType());
+        }
+        return factory.create(menu, inventory, title,
+                StyleManager.loadIndependentStyleDoc(desktopStylePath(MENU_STYLES.get(menu.getType()))));
+    }
 
     @VisibleForTesting
     static final Map<MenuType<?>, String> MENU_STYLES = new IdentityHashMap<>();
@@ -198,6 +231,7 @@ public final class InitScreens {
             StyledScreenFactory<M, U> factory,
             String stylePath) {
         MENU_STYLES.put(type, stylePath);
+        DESKTOP_FACTORIES.put(type, factory);
         event.<M, U>register(type, (menu, playerInv, title) -> {
             var style = StyleManager.loadStyleDoc(stylePath);
 

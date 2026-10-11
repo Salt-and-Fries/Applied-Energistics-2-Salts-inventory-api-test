@@ -23,12 +23,24 @@ public class AESubScreen<C extends AEBaseMenu, P extends AEBaseScreen<C>> extend
         super(parent.getMenu(),
                 parent.getMenu().getPlayerInventory(),
                 parent.getTitle(),
-                StyleManager.loadStyleDoc(stylePath));
+                parent.isDesktopHosted()
+                        ? StyleManager.loadIndependentStyleDoc(appeng.client.InitScreens.desktopStylePath(stylePath))
+                        : StyleManager.loadStyleDoc(stylePath));
         this.parent = parent;
     }
 
     public P getParent() {
         return parent;
+    }
+
+    @Override
+    public void desktopClosed() {
+        super.desktopClosed();
+        for (var slot : clientSideSlots) {
+            menu.removeClientSideSlot(slot);
+        }
+        clientSideSlots.clear();
+        parent.desktopClosed();
     }
 
     protected final void returnToParent() {

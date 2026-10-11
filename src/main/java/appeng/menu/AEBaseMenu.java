@@ -18,6 +18,7 @@
 
 package appeng.menu;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -26,6 +27,8 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -72,6 +75,7 @@ import appeng.api.stacks.GenericStack;
 import appeng.api.upgrades.IUpgradeInventory;
 import appeng.core.network.ClientboundPacket;
 import appeng.core.network.ServerboundPacket;
+import appeng.core.network.clientbound.DesktopMenuUpdatePacket;
 import appeng.core.network.clientbound.GuiDataSyncPacket;
 import appeng.core.network.serverbound.GuiActionPacket;
 import appeng.helpers.InventoryAction;
@@ -90,6 +94,48 @@ import appeng.parts.AEBasePart;
 import appeng.util.ConfigMenuInventory;
 
 public abstract class AEBaseMenu extends AbstractContainerMenu {
+    private UUID desktopSyncId;
+    private boolean desktopToolboxCompanion;
+    private final ArrayDeque<ServerboundPacket> desktopActions = new ArrayDeque<>();
+
+    public final UUID desktopSyncId() {
+        return desktopSyncId;
+    }
+
+    public final void setDesktopSyncId(UUID id) {
+        desktopSyncId = id;
+    }
+
+    public final boolean isDesktopToolboxCompanion() {
+        return desktopToolboxCompanion;
+    }
+
+    public final void setDesktopToolboxCompanion(boolean companion) {
+        desktopToolboxCompanion = companion;
+    }
+
+    public final void sendPacketToServer(ServerboundPacket packet) {
+        if (desktopSyncId == null) {
+            ClientPacketDistributor.sendToServer(packet);
+        } else {
+            if (desktopActions.size() >= 256) {
+                throw new IllegalStateException("Too many queued desktop actions");
+            }
+            desktopActions.addLast(packet);
+        }
+    }
+
+    public final void flushDesktopActions(BiConsumer<net.minecraft.resources.Identifier, byte[]> send) {
+        while (!desktopActions.isEmpty()) {
+            var packet = desktopActions.removeFirst();
+            send.accept(packet.type().id(), DesktopMenuPackets.encodeAction(packet, registryAccess()));
+        }
+    }
+
+    public final void discardDesktopActions() {
+        desktopActions.clear();
+    }
+
     private static final Logger LOG = LoggerFactory.getLogger(AEBaseMenu.class);
 
     private static final int MAX_CLIENT_ACTION_PAYLOAD = 32767;
@@ -257,8 +303,10 @@ public abstract class AEBaseMenu extends AbstractContainerMenu {
 
         // We're only doing this on the client-side.
         // The synchronization related fields are not used
-        slot.index = slots.size();
-        slots.add(slot);
+        slot.index = desktopSyncId == null ? slots.size() : -1;
+        if (desktopSyncId == null) {
+            slots.add(slot);
+        }
 
         if (semantic != null) {
             semanticBySlot.put(slot, semantic);
@@ -268,25 +316,31 @@ public abstract class AEBaseMenu extends AbstractContainerMenu {
     }
 
     public void removeClientSideSlot(Slot slot) {
-        if (slots.get(slot.index) != slot) {
+        if (desktopSyncId == null && slots.get(slot.index) != slot) {
             throw new IllegalStateException("Trying to remove slot which isn't currently in the menu");
         }
         if (!clientSideSlot.remove(slot)) {
             throw new IllegalStateException("Trying to remove slot which isn't a client-side slot");
         }
 
-        slots.remove(slot.index);
+        if (desktopSyncId == null) {
+            slots.remove(slot.index);
+        }
         semanticBySlot.remove(slot);
         slotsBySemantic.values().remove(slot);
 
         // Update the slot index for any subsequent slots
-        for (int i = slot.index; i < slots.size(); i++) {
+        for (int i = desktopSyncId == null ? slot.index : slots.size(); i < slots.size(); i++) {
             slots.get(i).index = i;
         }
     }
 
     public boolean isClientSideSlot(Slot slot) {
         return clientSideSlot.contains(slot);
+    }
+
+    public List<Slot> clientSideSlots() {
+        return List.copyOf(clientSideSlot);
     }
 
     public List<Slot> getSlots(SlotSemantic semantic) {
@@ -372,6 +426,13 @@ public abstract class AEBaseMenu extends AbstractContainerMenu {
 
         var slotSemantic = semanticBySlot.get(slot);
         return slotSemantic != null && slotSemantic.playerSide();
+    }
+
+    /** Player-side quick-move destinations also include crafting grids; only these are the shared player slots. */
+    public boolean isPlayerInventorySlot(Slot slot) {
+        var semantic = semanticBySlot.get(slot);
+        return slot.container == playerInventory || semantic == SlotSemantics.PLAYER_INVENTORY
+                || semantic == SlotSemantics.PLAYER_HOTBAR;
     }
 
     @Nullable
@@ -897,7 +958,12 @@ public abstract class AEBaseMenu extends AbstractContainerMenu {
 
     protected final void sendPacketToClient(ClientboundPacket packet) {
         if (getPlayer() instanceof ServerPlayer serverPlayer) {
-            serverPlayer.connection.send(packet);
+            if (desktopSyncId == null) {
+                serverPlayer.connection.send(packet);
+            } else {
+                serverPlayer.connection.send(new DesktopMenuUpdatePacket(desktopSyncId, containerId, packet.type().id(),
+                        DesktopMenuPackets.encodeUpdate(packet, registryAccess())));
+            }
         }
     }
 
@@ -987,7 +1053,7 @@ public abstract class AEBaseMenu extends AbstractContainerMenu {
         }
 
         ServerboundPacket message = new GuiActionPacket(containerId, clientAction.key().name(), argumentPayload);
-        ClientPacketDistributor.sendToServer(message);
+        sendPacketToServer(message);
     }
 
     /**

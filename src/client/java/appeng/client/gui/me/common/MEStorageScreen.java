@@ -44,7 +44,6 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
-import net.neoforged.neoforge.client.network.ClientPacketDistributor;
 
 import guideme.color.ConstantColor;
 import guideme.document.LytRect;
@@ -95,6 +94,7 @@ import appeng.core.network.serverbound.SwitchGuisPacket;
 import appeng.helpers.InventoryAction;
 import appeng.integration.abstraction.ItemListMod;
 import appeng.items.storage.ViewCellItem;
+import appeng.menu.MenuPacketScope;
 import appeng.menu.SlotSemantics;
 import appeng.menu.me.common.GridInventoryEntry;
 import appeng.menu.me.common.MEStorageMenu;
@@ -113,7 +113,7 @@ public class MEStorageScreen<C extends MEStorageMenu>
     private static final int MIN_ROWS = 2;
 
     private static String rememberedSearch = "";
-    private final TerminalStyle style;
+    private TerminalStyle style;
     protected final Repo repo;
     private final List<ItemStack> currentViewCells = new ArrayList<>();
     private final IConfigManager configSrc;
@@ -333,17 +333,33 @@ public class MEStorageScreen<C extends MEStorageMenu>
 
     private void showCraftingStatus() {
         ServerboundPacket message = SwitchGuisPacket.openSubMenu(CraftingStatusMenu.TYPE);
-        ClientPacketDistributor.sendToServer(message);
+        MenuPacketScope.send(message);
     }
 
     private int getSlotsPerRow() {
-        return style.getSlotsPerRow();
+        return isDesktopHosted() ? repo.getRowSize() : style.getSlotsPerRow();
     }
 
     @Override
     public void init() {
+        this.style = getStyle().getTerminalStyle();
+        if (isDesktopHosted()) {
+            style.setDesktopHeaderExtraHeight(14);
+            var searchPosition = getStyle().getWidget("search");
+            searchPosition.setLeft(7);
+            searchPosition.setTop(18);
+            searchPosition.setWidth(162);
+            getStyle().getWidget("scrollbar").setTop(style.getHeaderHeight() + 1);
+            int columns = Math.max(style.getSlotsPerRow(), (width - 26) / 18);
+            repo.setRowSize(columns);
+            repo.updateView();
+            searchField.resize(usesAeDesktopLayout() ? getStyle().getWidget("search").getWidth() : width - 26, 12);
+        }
         var availableHeight = height - 2 * AEConfig.instance().getTerminalMargin();
-        this.rows = Math.max(MIN_ROWS, config.getTerminalStyle().getRows(style.getPossibleRows(availableHeight)));
+        int possibleRows = style.getPossibleRows(availableHeight);
+        this.rows = Math.max(isDesktopHosted() ? desktopMinimumTerminalRows() : MIN_ROWS,
+                isDesktopHosted() ? possibleRows
+                        : config.getTerminalStyle().getRows(possibleRows));
 
         // Size the menu according to the number of rows we decided to have
         this.imageHeight = style.getScreenHeight(rows);
@@ -351,13 +367,19 @@ public class MEStorageScreen<C extends MEStorageMenu>
         // Re-create the ME slots since the number of rows could have changed
         List<Slot> slots = this.menu.slots;
         slots.removeIf(slot -> slot instanceof RepoSlot);
+        desktopVirtualSlots.clear();
 
         int repoIndex = 0;
         for (int row = 0; row < this.rows; row++) {
-            for (int col = 0; col < style.getSlotsPerRow(); col++) {
+            for (int col = 0; col < getSlotsPerRow(); col++) {
                 Point pos = style.getSlotPos(row, col);
 
-                slots.add(new RepoSlot(this.repo, repoIndex++, pos.getX(), pos.getY()));
+                var repoSlot = new RepoSlot(this.repo, repoIndex++, pos.getX(), pos.getY());
+                if (isDesktopHosted()) {
+                    desktopVirtualSlots.add(repoSlot);
+                } else {
+                    slots.add(repoSlot);
+                }
             }
         }
 
@@ -451,7 +473,7 @@ public class MEStorageScreen<C extends MEStorageMenu>
         }
 
         // Show the number of active crafting jobs
-        if (this.craftingStatusBtn != null && menu.activeCraftingJobs != -1) {
+        if (!isDesktopHosted() && this.craftingStatusBtn != null && menu.activeCraftingJobs != -1) {
             // The stack size renderer expects a 16x16 slot, while the button is normally
             // bigger
             int x = this.craftingStatusBtn.getX() + (this.craftingStatusBtn.getWidth() - 18) / 2;
@@ -461,7 +483,23 @@ public class MEStorageScreen<C extends MEStorageMenu>
                     String.valueOf(menu.activeCraftingJobs));
         }
 
-        renderLinkStatus(guiGraphics, getMenu().getLinkStatus());
+        if (!isDesktopHosted()) {
+            renderLinkStatus(guiGraphics, getMenu().getLinkStatus());
+        }
+    }
+
+    @Override
+    protected void drawDesktopOverlayHints(GuiGraphicsExtractor graphics) {
+        if (craftingStatusBtn != null && craftingStatusBtn.visible && menu.activeCraftingJobs >= 0) {
+            int x = craftingStatusBtn.getX() + (craftingStatusBtn.getWidth() - 18) / 2;
+            int y = craftingStatusBtn.getY() + (craftingStatusBtn.getHeight() - 18) / 2;
+            StackSizeRenderer.renderSizeLabel(graphics, font, x, y, String.valueOf(menu.activeCraftingJobs));
+        }
+    }
+
+    @Override
+    protected void drawDesktopBodyOverlayHints(GuiGraphicsExtractor graphics) {
+        renderLinkStatus(graphics, getMenu().getLinkStatus());
     }
 
     private void renderLinkStatus(GuiGraphicsExtractor guiGraphics, ILinkStatus linkStatus) {
@@ -470,7 +508,7 @@ public class MEStorageScreen<C extends MEStorageMenu>
             var renderContext = new SimpleRenderContext(LytRect.empty(), guiGraphics);
 
             var firstSlot = style.getSlotPos(0, 0);
-            var lastSlot = style.getSlotPos(rows - 1, style.getSlotsPerRow() - 1);
+            var lastSlot = style.getSlotPos(rows - 1, getSlotsPerRow() - 1);
 
             var rect = new LytRect(
                     firstSlot.getX() - 1,
@@ -489,7 +527,7 @@ public class MEStorageScreen<C extends MEStorageMenu>
     }
 
     private void renderPinnedRowDecorations(GuiGraphicsExtractor guiGraphics) {
-        for (Slot slot : menu.slots) {
+        for (Slot slot : getInventorySlots()) {
             if (slot instanceof RepoSlot repoSlot) {
                 var entry = repoSlot.getEntry();
                 if (entry != null && PendingCraftingJobs.hasPendingJob(entry.getWhat())) {
@@ -519,7 +557,7 @@ public class MEStorageScreen<C extends MEStorageMenu>
     @Override
     public boolean mouseScrolled(double x, double y, double deltaX, double deltaY) {
         if (deltaY != 0 && getMinecraft().hasShiftDown()) {
-            if (this.getHoveredSlot(x, y) instanceof RepoSlot repoSlot) {
+            if ((isDesktopHosted() ? desktopSlotAt(x, y) : this.getHoveredSlot(x, y)) instanceof RepoSlot repoSlot) {
                 GridInventoryEntry entry = repoSlot.getEntry();
                 long serial = entry != null ? entry.getSerial() : -1;
                 final InventoryAction direction = deltaY > 0 ? InventoryAction.ROLL_DOWN
@@ -527,7 +565,7 @@ public class MEStorageScreen<C extends MEStorageMenu>
                 int times = (int) Math.abs(deltaY);
                 for (int h = 0; h < times; h++) {
                     final MEInteractionPacket p = new MEInteractionPacket(this.menu.containerId, serial, direction);
-                    ClientPacketDistributor.sendToServer(p);
+                    MenuPacketScope.send(p);
                 }
 
                 return true;
@@ -564,6 +602,16 @@ public class MEStorageScreen<C extends MEStorageMenu>
     @Override
     public void removed() {
         super.removed();
+        finishLocalState();
+    }
+
+    @Override
+    public void desktopClosed() {
+        super.desktopClosed();
+        finishLocalState();
+    }
+
+    private void finishLocalState() {
         storeState();
 
         // Mark any keys as pruneable that were pinned due to crafting, but are no longer pending
@@ -580,6 +628,9 @@ public class MEStorageScreen<C extends MEStorageMenu>
     @Override
     public void drawBG(GuiGraphicsExtractor guiGraphics, int offsetX, int offsetY, int mouseX,
             int mouseY, float partialTicks) {
+        if (isDesktopHosted() && !usesAeDesktopLayout()) {
+            return;
+        }
 
         guiGraphics.nextStratum();
 
@@ -590,6 +641,13 @@ public class MEStorageScreen<C extends MEStorageMenu>
         int y = offsetY;
         style.getHeader().dest(offsetX, y).blit(guiGraphics);
         y += style.getHeader().getSrcHeight();
+        if (style.getDesktopHeaderExtraHeight() > 0) {
+            // Extend a plain interior strip, preserving integral texture pixels and the original side borders.
+            int extra = style.getDesktopHeaderExtraHeight();
+            style.getHeader().copy().src(style.getHeader().getSrcX(), style.getHeader().getSrcY() + 3,
+                    style.getHeader().getSrcWidth(), extra).dest(offsetX, y).blit(guiGraphics);
+            y += extra;
+        }
 
         // To draw the first/last row, we need to at least draw 2
         int rowsToDraw = Math.max(2, this.rows);
@@ -610,7 +668,7 @@ public class MEStorageScreen<C extends MEStorageMenu>
         if (repo.hasPinnedRow()) {
             Blitter.texture("guis/terminal.png")
                     .src(0, 204, 162, 18)
-                    .dest(offsetX + 7, offsetY + style.getHeader().getSrcHeight())
+                    .dest(offsetX + 7, offsetY + style.getHeaderHeight())
                     .blit(guiGraphics);
         }
 
@@ -618,6 +676,31 @@ public class MEStorageScreen<C extends MEStorageMenu>
             this.searchField.extractRenderState(guiGraphics, mouseX, mouseY, partialTicks);
         }
 
+    }
+
+    @Override
+    public List<net.minecraft.client.renderer.Rect2i> desktopSurfaceSegments() {
+        var body = desktopContentBounds();
+        int upperHeight = Math.min(body.getHeight(),
+                style.getHeaderHeight() + rows * style.getRow().getSrcHeight() + 4);
+        if (upperHeight == body.getHeight()) {
+            return super.desktopSurfaceSegments();
+        }
+        // Original AE crafting/encoding bodies step inward below the catalog and retain protruding mode controls.
+        return List.of(new net.minecraft.client.renderer.Rect2i(0, 0, body.getWidth(), upperHeight),
+                new net.minecraft.client.renderer.Rect2i(0, upperHeight, Math.min(176, body.getWidth()),
+                        body.getHeight() - upperHeight));
+    }
+
+    @Override
+    protected void drawDesktopBottomEdge(GuiGraphicsExtractor graphics) {
+        if (usesAeDesktopLayout() && style.getBottom().getSrcHeight() == 99) {
+            var body = desktopContentBounds();
+            appeng.client.gui.style.DesktopFrameEdges.catalogBottom(graphics, style.getHeader(), style.getBottom(),
+                    body.getX(), body.getY() + body.getHeight() - 4, body.getWidth());
+        } else {
+            super.drawDesktopBottomEdge(graphics);
+        }
     }
 
     @Override
@@ -759,7 +842,7 @@ public class MEStorageScreen<C extends MEStorageMenu>
         }
 
         if (!this.searchField.isFocused() && isCloseHotkey(event)) {
-            this.getPlayer().closeContainer();
+            closeCurrentMenu();
             return true;
         }
 
@@ -831,13 +914,21 @@ public class MEStorageScreen<C extends MEStorageMenu>
         appeng.api.config.TerminalStyle next = btn.getNextValue(backwards);
         config.setTerminalStyle(next);
         btn.set(next);
+        if (isDesktopHosted()) {
+            int maximumRows = style.getPossibleRows(getMinecraft().getWindow().getGuiScaledHeight() - 40);
+            int requestedRows = Math.max(MIN_ROWS, next.getRows(maximumRows));
+            var minimum = desktopPreferredSize();
+            requestDesktopSize(imageWidth,
+                    Math.max(minimum[1], style.getScreenHeight(requestedRows) - desktopInventoryCut()));
+            return;
+        }
         this.reinitalize();
     }
 
     private <SE extends Enum<SE>> void toggleServerSetting(SettingToggleButton<SE> btn, boolean backwards) {
         SE next = btn.getNextValue(backwards);
         ServerboundPacket message = new ConfigValuePacket(btn.getSetting(), next);
-        ClientPacketDistributor.sendToServer(message);
+        MenuPacketScope.send(message);
         btn.set(next);
     }
 

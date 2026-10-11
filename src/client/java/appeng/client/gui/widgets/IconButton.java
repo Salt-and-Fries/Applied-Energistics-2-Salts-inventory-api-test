@@ -31,6 +31,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 
+import appeng.client.gui.DesktopChrome;
 import appeng.client.gui.style.Blitter;
 import appeng.util.Icon;
 
@@ -41,6 +42,38 @@ public abstract class IconButton extends Button implements ITooltip {
     private boolean disableClickSound = false;
 
     private boolean disableBackground = false;
+    private boolean desktopTab;
+    private boolean desktopControl;
+
+    public void setDesktopControl() {
+        desktopControl = true;
+        if (halfSize) {
+            setWidth(8);
+            setHeight(8);
+        } else if (!disableBackground) {
+            setWidth(20);
+            setHeight(20);
+        }
+    }
+
+    private DesktopChrome.Edge desktopEdge = DesktopChrome.Edge.LEFT;
+
+    public void setDesktopEdge(DesktopChrome.Edge edge) {
+        desktopEdge = edge;
+        setDesktopTab(true);
+    }
+
+    public void setDesktopTab(boolean value) {
+        desktopTab = value;
+        if (value) {
+            setWidth(DesktopChrome.TAB_SIZE);
+            setHeight(DesktopChrome.TAB_SIZE);
+        }
+    }
+
+    public boolean isDesktopTab() {
+        return desktopTab;
+    }
 
     public IconButton(OnPress onPress) {
         super(0, 0, 16, 16, Component.empty(), onPress, Button.DEFAULT_NARRATION);
@@ -64,6 +97,33 @@ public abstract class IconButton extends Button implements ITooltip {
         if (this.visible) {
             var icon = this.getIcon();
             var item = this.getItemOverlay();
+
+            if (desktopTab) {
+                DesktopChrome.tab(guiGraphics, new Rect2i(getX(), getY(), width, height), desktopEdge,
+                        true, isHovered(), isFocused());
+                if (item != null) {
+                    guiGraphics.item(new ItemStack(item), getX() + 5, getY() + 5);
+                } else if (icon != null) {
+                    Blitter.icon(icon).dest(getX() + 5, getY() + 5).opacity(active ? 1f : 0.4f).blit(guiGraphics);
+                }
+                return;
+            }
+
+            if (desktopControl) {
+                if (!disableBackground) {
+                    DesktopChrome.button(guiGraphics, new Rect2i(getX(), getY(), width, height),
+                            isHovered(), isFocused(), active);
+                }
+                int size = halfSize ? 8 : 16;
+                int x = getX() + (width - size) / 2;
+                int y = getY() + (height - size) / 2;
+                if (item != null) {
+                    guiGraphics.item(new ItemStack(item), x, y);
+                } else if (icon != null) {
+                    Blitter.icon(icon).dest(x, y).opacity(active ? 1f : 0.4f).blit(guiGraphics);
+                }
+                return;
+            }
 
             if (this.halfSize) {
                 this.width = 8;

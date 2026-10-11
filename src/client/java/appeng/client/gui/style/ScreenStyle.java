@@ -111,9 +111,42 @@ public class ScreenStyle {
     @Nullable
     private TerminalStyle terminalStyle;
 
+    @Nullable
+    private DesktopLayoutStyle desktop;
+
+    @Nullable
+    public DesktopLayoutStyle getDesktop() {
+        return desktop;
+    }
+
+    public boolean isDesktopRestyled() {
+        return desktop != null && !desktop.preserveAeLayout();
+    }
+
     private final Map<String, WidgetStyle> widgets = new HashMap<>();
 
     private final Map<String, TooltipArea> tooltips = new HashMap<>();
+
+    /** Updates this independent desktop document while keeping native widget style ownership. */
+    void replaceDesktopResources(ScreenStyle next) {
+        helpTopic = next.helpTopic;
+        slots.clear();
+        slots.putAll(next.slots);
+        text.clear();
+        text.putAll(next.text);
+        palette.clear();
+        palette.putAll(next.palette);
+        images.clear();
+        images.putAll(next.images);
+        widgets.clear();
+        widgets.putAll(next.widgets);
+        tooltips.clear();
+        tooltips.putAll(next.tooltips);
+        background = next.background;
+        generatedBackground = next.generatedBackground;
+        terminalStyle = next.terminalStyle;
+        desktop = next.desktop;
+    }
 
     public Color getColor(PaletteColor color) {
         return palette.get(color);

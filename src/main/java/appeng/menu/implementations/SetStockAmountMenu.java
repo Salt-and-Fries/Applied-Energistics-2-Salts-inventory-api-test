@@ -78,9 +78,8 @@ public class SetStockAmountMenu extends AEBaseMenu implements ISubMenu {
     public static void open(ServerPlayer player, MenuHostLocator locator,
             int slot,
             AEKey whatToStock, int initialAmount) {
-        MenuOpener.open(SetStockAmountMenu.TYPE, player, locator);
-
-        if (player.containerMenu instanceof SetStockAmountMenu cca) {
+        var cca = MenuOpener.openAndGetMenu(SetStockAmountMenu.TYPE, player, locator);
+        if (cca != null) {
             cca.setWhatToStock(slot, whatToStock, initialAmount);
             cca.broadcastChanges();
         }

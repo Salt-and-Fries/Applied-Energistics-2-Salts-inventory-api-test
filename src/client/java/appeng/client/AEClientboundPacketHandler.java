@@ -73,6 +73,61 @@ import appeng.menu.me.common.MEStorageMenu;
 import appeng.menu.me.crafting.CraftConfirmMenu;
 
 public class AEClientboundPacketHandler {
+    public void handleDesktopMenuUpdate(appeng.core.network.clientbound.DesktopMenuUpdatePacket packet,
+            Minecraft minecraft, Player player) {
+        var decoded = appeng.menu.DesktopMenuPackets.decodeUpdate(packet.channel(), packet.data(),
+                player.registryAccess());
+        if (!appeng.client.gui.DesktopContentRegistry.receive(packet.owner(), decoded)) {
+            if (player.containerMenu instanceof AEBaseMenu menu && menu.containerId == packet.containerId()
+                    && minecraft.gui.screen() instanceof appeng.client.gui.AEBaseScreen<?> content
+                    && !content.isDesktopHosted()) {
+                applyDesktopUpdate(decoded, content);
+            } else {
+                appeng.client.gui.DesktopContentRegistry.awaitOpening(packet.owner(), decoded, packet.data().length);
+            }
+        }
+    }
+
+    public static void applyDesktopUpdate(ClientboundPacket packet, appeng.client.gui.AEBaseScreen<?> content) {
+        var menu = content.getMenu();
+        appeng.menu.MenuPacketScope.run(menu, () -> {
+            if (packet instanceof GuiDataSyncPacket update) {
+                var buffer = new RegistryFriendlyByteBuf(Unpooled.wrappedBuffer(update.syncData()),
+                        menu.getPlayer().registryAccess());
+                try {
+                    menu.receiveServerSyncData(buffer);
+                } finally {
+                    buffer.release();
+                }
+            } else if (packet instanceof ConfigValuePacket update && menu instanceof IConfigurableObject configurable) {
+                update.loadSetting(configurable);
+            } else if (packet instanceof MEInventoryUpdatePacket update && menu instanceof MEStorageMenu storage) {
+                if (storage.getClientRepo() != null && update.getActualEntries() != null) {
+                    storage.getClientRepo().handleUpdate(update.fullUpdate(), update.getActualEntries());
+                }
+            } else if (packet instanceof SetLinkStatusPacket update && menu instanceof LinkStatusAwareMenu aware) {
+                aware.setLinkStatus(update.linkStatus());
+            } else if (packet instanceof CraftConfirmPlanPacket update && menu instanceof CraftConfirmMenu confirm) {
+                confirm.setPlan(update.plan());
+            } else if (packet instanceof CraftingStatusPacket update && content instanceof CraftingCPUScreen<?> cpu) {
+                cpu.postUpdate(update.status());
+            } else if (packet instanceof NetworkStatusPacket update && content instanceof NetworkStatusScreen network) {
+                network.processServerUpdate(update.status());
+            } else if (packet instanceof PatternAccessTerminalPacket update
+                    && content instanceof PatternAccessTermScreen<?> terminal) {
+                if (update.fullUpdate()) {
+                    terminal.postFullUpdate(update.inventoryId(), update.sortBy(), update.group(),
+                            update.inventorySize(), update.slots());
+                } else {
+                    terminal.postIncrementalUpdate(update.inventoryId(), update.slots());
+                }
+            } else if (packet instanceof ClearPatternAccessTerminalPacket
+                    && content instanceof PatternAccessTermScreen<?> terminal) {
+                terminal.clear();
+            }
+        });
+    }
+
     public void handleGuiDataSyncPacket(GuiDataSyncPacket packet, Minecraft minecraft, Player player) {
         AbstractContainerMenu c = player.containerMenu;
         if (c instanceof AEBaseMenu baseMenu && c.containerId == packet.containerId()) {
@@ -325,6 +380,10 @@ public class AEClientboundPacketHandler {
     }
 
     public void register(RegisterClientPayloadHandlersEvent event) {
+        register(event, appeng.core.network.clientbound.MenuOpeningDataPacket.TYPE,
+                (packet, minecraft, player) -> appeng.menu.MenuOpeningData.receive(minecraft.getConnection(),
+                        packet.containerId(), packet.menuType(), packet.data()));
+        register(event, appeng.core.network.clientbound.DesktopMenuUpdatePacket.TYPE, this::handleDesktopMenuUpdate);
         register(event, GuiDataSyncPacket.TYPE, this::handleGuiDataSyncPacket);
         register(event, MatterCannonPacket.TYPE, this::handleMatterCannonPacket);
         register(event, SetLinkStatusPacket.TYPE, this::handleSetLinkStatusPacket);

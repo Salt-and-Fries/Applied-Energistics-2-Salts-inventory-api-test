@@ -46,6 +46,7 @@ public final class StyleManager {
     private static final Map<String, ScreenStyle> styleCache = new HashMap<>();
     public static final String PROP_INCLUDES = "includes";
 
+    private static final Map<ScreenStyle, String> desktopDocuments = new java.util.WeakHashMap<>();
     private static ResourceManager resourceManager;
 
     private static String getBasePath(String path) {
@@ -58,6 +59,8 @@ public final class StyleManager {
     }
 
     public static ScreenStyle loadStyleDoc(String path) {
+        if (path.startsWith("/screens/desktop/"))
+            return loadIndependentStyleDoc(path);
         ScreenStyle style;
 
         try {
@@ -72,6 +75,26 @@ public final class StyleManager {
         // includes are allowed to be partially valid.
         style.validate();
         return style;
+    }
+
+    /** Desktop subviews may mutate their geometry; never share their style with another window. */
+    public static ScreenStyle loadIndependentStyleDoc(String path) {
+        try {
+            var document = loadMergedJsonTree(path, new HashSet<>(), new HashSet<>());
+            var style = ScreenStyle.GSON.fromJson(document, ScreenStyle.class);
+            style.validate();
+            desktopDocuments.put(style, path);
+            return style;
+        } catch (IOException error) {
+            throw new IllegalStateException("Cannot load independent desktop style " + path, error);
+        }
+    }
+
+    /** Called on the client thread after native resource reload, never from a background worker. */
+    public static void refreshDesktopResources(ScreenStyle style) {
+        String path = desktopDocuments.get(style);
+        if (path != null)
+            style.replaceDesktopResources(loadIndependentStyleDoc(path));
     }
 
     private static JsonObject loadMergedJsonTree(String path, Set<String> loadedFiles, Set<String> resourcePacks)

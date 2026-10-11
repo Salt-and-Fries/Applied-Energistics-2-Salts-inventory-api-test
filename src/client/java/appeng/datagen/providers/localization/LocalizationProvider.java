@@ -62,10 +62,73 @@ public class LocalizationProvider implements IAE2DataProvider {
             add(powerUnit.unlocalizedName, powerUnit.symbolName);
         }
 
+        generateDesktopLocalizations();
         generateJadeLocalizations();
         generateLocalizations();
 
         return save(cache, localizations);
+    }
+
+    private void generateDesktopLocalizations() {
+        add("gui.ae2.DesktopView.name", "Name");
+        add("gui.ae2.DesktopSettings.pinCrafted", "Pin crafted items to first row");
+        add("gui.ae2.DesktopSettings.notifyCrafted", "Notify when crafting finishes");
+        add("gui.ae2.DesktopSettings.clearGrid", "Clear crafting grid on close");
+        add("gui.ae2.DesktopView.processingAmount", "Processing Amount");
+        add("gui.ae2.DesktopView.craftError", "Crafting Error");
+        add("gui.ae2.DesktopHint.waitingCraftingStatus", "Waiting for crafting status...");
+        add("gui.ae2.DesktopHint.noCraftingJob", "No active crafting job.");
+        add("gui.ae2.DesktopHint.noCraftingCpu", "No crafting CPU available.");
+        add("gui.ae2.DesktopHint.craftingError", "Crafting Error");
+        add("gui.ae2.DesktopPanel.toolboxWithBadge", "Toolbox %s");
+        add("gui.ae2.DesktopHint.toolboxSource", "Shared tool: %s");
+        add("gui.ae2.DesktopHint.insertCell", "Insert a storage cell to edit its filter.");
+        add("gui.ae2.DesktopHint.insertPattern", "Insert a crafting pattern, or connect a Pattern Provider.");
+        add("gui.ae2.DesktopHint.windowManagement", "Drag the title to move. Right-click it for window actions.");
+        add("gui.ae2.DesktopHint.companionDrag", "Drag the title to move. Shared by its open AE windows.");
+        add("gui.ae2.DesktopPanel.toolbox", "Toolbox");
+        add("gui.ae2.DesktopPanel.upgrades", "Upgrades");
+        add("gui.ae2.DesktopPanel.viewCells", "View Cells");
+        add("gui.ae2.DesktopWindow.basic_cell_chest", "ME Chest Storage");
+        add("gui.ae2.DesktopWindow.cellworkbench", "Cell Workbench");
+        add("gui.ae2.DesktopWindow.condenser", "Matter Condenser");
+        add("gui.ae2.DesktopWindow.controller_networkstatus", "Network Details");
+        add("gui.ae2.DesktopWindow.craftamount", "Craft Amount");
+        add("gui.ae2.DesktopWindow.craftconfirm", "Crafting Plan");
+        add("gui.ae2.DesktopWindow.craftingcpu", "Crafting CPU");
+        add("gui.ae2.DesktopWindow.craftingstatus", "Crafting Status");
+        add("gui.ae2.DesktopWindow.craftingterm", "Crafting Terminal");
+        add("gui.ae2.DesktopWindow.drive", "ME Drive");
+        add("gui.ae2.DesktopWindow.energy_level_emitter", "Energy Level Emitter");
+        add("gui.ae2.DesktopWindow.export_bus", "Export Bus");
+        add("gui.ae2.DesktopWindow.formationplane", "Formation Plane");
+        add("gui.ae2.DesktopWindow.import_bus", "Import Bus");
+        add("gui.ae2.DesktopWindow.inscriber", "Inscriber");
+        add("gui.ae2.DesktopWindow.interface", "ME Interface");
+        add("gui.ae2.DesktopWindow.ioport", "ME IO Port");
+        add("gui.ae2.DesktopWindow.item_terminal", "ME Terminal");
+        add("gui.ae2.DesktopWindow.me_chest", "ME Chest");
+        add("gui.ae2.DesktopWindow.molecular_assembler", "Molecular Assembler");
+        add("gui.ae2.DesktopWindow.networkstatus", "Network Details");
+        add("gui.ae2.DesktopWindow.networktool", "Network Tool");
+        add("gui.ae2.DesktopWindow.pattern_provider", "Pattern Provider");
+        add("gui.ae2.DesktopWindow.patternaccessterminal", "Pattern Access");
+        add("gui.ae2.DesktopWindow.patternterm", "Pattern Encoding");
+        add("gui.ae2.DesktopWindow.portable_fluid_cell", "Portable Fluid Cell");
+        add("gui.ae2.DesktopWindow.portable_item_cell", "Portable Item Cell");
+        add("gui.ae2.DesktopWindow.priority", "Storage Priority");
+        add("gui.ae2.DesktopWindow.qnb", "Quantum Bridge");
+        add("gui.ae2.DesktopWindow.quartzknife", "Quartz Cutting Knife");
+        add("gui.ae2.DesktopWindow.set_stock_amount", "Set Stock Amount");
+        add("gui.ae2.DesktopWindow.skystone_chest", "Sky Stone Chest");
+        add("gui.ae2.DesktopWindow.spatialanchor", "Spatial Anchor");
+        add("gui.ae2.DesktopWindow.spatialioport", "Spatial IO Port");
+        add("gui.ae2.DesktopWindow.storage_level_emitter", "Storage Level Emitter");
+        add("gui.ae2.DesktopWindow.storagebus", "Storage Bus");
+        add("gui.ae2.DesktopWindow.vibrationchamber", "Vibration Chamber");
+        add("gui.ae2.DesktopWindow.wireless_access_point", "Wireless Access Point");
+        add("gui.ae2.DesktopWindow.wirelesscraftingterm", "Wireless Crafting Terminal");
+        add("gui.ae2.DesktopWindow.wirelessterm", "Wireless Terminal");
     }
 
     private void generateJadeLocalizations() {

@@ -28,6 +28,7 @@ import net.minecraft.client.renderer.Rect2i;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 
+import appeng.client.gui.DesktopChrome;
 import appeng.client.gui.style.Blitter;
 import appeng.util.Icon;
 
@@ -39,6 +40,17 @@ public class TabButton extends Button implements ITooltip {
     private boolean selected;
 
     private boolean disableBackground = false;
+    private DesktopChrome.Edge desktopEdge;
+
+    public void setDesktopEdge(DesktopChrome.Edge edge) {
+        desktopEdge = edge;
+        setWidth(DesktopChrome.TAB_SIZE);
+        setHeight(DesktopChrome.TAB_SIZE);
+    }
+
+    public boolean isDesktopTab() {
+        return desktopEdge != null;
+    }
 
     public enum Style {
         CORNER,
@@ -66,6 +78,18 @@ public class TabButton extends Button implements ITooltip {
     @Override
     public void extractContents(GuiGraphicsExtractor guiGraphics, int x, int y, float partial) {
         if (this.visible) {
+            if (desktopEdge != null) {
+                DesktopChrome.tab(guiGraphics, new Rect2i(getX(), getY(), width, height), desktopEdge,
+                        selected, isHovered(), isFocused());
+                int iconX = getX() + (width - 16) / 2;
+                int iconY = getY() + (height - 16) / 2;
+                if (icon != null) {
+                    Blitter.icon(icon).dest(iconX, iconY).blit(guiGraphics);
+                } else if (item != null) {
+                    guiGraphics.item(item, iconX, iconY);
+                }
+                return;
+            }
             // Selects the button border from the sprite-sheet, where each type occupies a
             // 2x2 slot
             var backdrop = switch (this.style) {

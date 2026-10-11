@@ -31,6 +31,7 @@ import net.minecraft.client.renderer.RenderPipelines;
 import appeng.client.Point;
 import appeng.client.gui.AEBaseScreen;
 import appeng.client.gui.ICompositeWidget;
+import appeng.client.gui.style.Blitter;
 import appeng.core.AppEng;
 
 /**
@@ -47,12 +48,124 @@ public class VerticalButtonBar implements ICompositeWidget {
     // This bounding rectangle relative to the screens origin
     private Rect2i bounds = new Rect2i(0, 0, 0, 0);
     private Point position;
+    private boolean desktop;
+    private boolean aeDesktop;
+    private final List<Rect2i> desktopColumns = new ArrayList<>();
+
+    public void layoutAeDesktop(Rect2i body) {
+        layoutAeDesktop(body, 0);
+    }
+
+    public void layoutAeDesktop(Rect2i body, int left) {
+        desktop = true;
+        aeDesktop = true;
+        desktopColumns.clear();
+        var visible = buttons.stream().filter(button -> button.visible).toList();
+        int rowHeight = visible.stream().mapToInt(button -> desktopPaintBounds(button).getHeight()).max().orElse(21)
+                + 1;
+        int columnWidth = visible.stream().mapToInt(button -> desktopPaintBounds(button).getWidth()).max().orElse(18)
+                + 6;
+        // Three pixels around the painted bevel, plus the four-pixel native footer.
+        int capacity = Math.max(1, (body.getHeight() - 6) / rowHeight);
+        for (int i = 0; i < visible.size(); i++) {
+            var button = visible.get(i);
+            button.setX(body.getX() + left - columnWidth + 5 - (i / capacity) * columnWidth);
+            button.setY(body.getY() + 3 + (i % capacity) * rowHeight);
+        }
+        int backingHeight = Math.min(capacity, visible.size()) * rowHeight + 6;
+        for (int column = 0; column * capacity < visible.size(); column++) {
+            desktopColumns.add(new Rect2i(left + 1 - (column + 1) * columnWidth, 0,
+                    columnWidth, backingHeight));
+        }
+        int columns = desktopColumns.size();
+        bounds = columns == 0 ? new Rect2i(0, 0, 0, 0)
+                : new Rect2i(left + 1 - columns * columnWidth, 0, columns * columnWidth,
+                        backingHeight);
+    }
+
+    /** The native toolbar bevel includes pixels outside its 16-pixel input rectangle. */
+    public static Rect2i desktopPaintBounds(Button button) {
+        return new Rect2i(button.getX() - 1, button.getY(), Math.max(18, button.getWidth() + 2),
+                Math.max(21, button.getHeight() + 5));
+    }
+
+    public List<Rect2i> desktopBackingColumns() {
+        return List.copyOf(desktopColumns);
+    }
+
+    private static void backingPiece(GuiGraphicsExtractor graphics, Blitter sprite,
+            int sx, int sy, int sw, int sh, int x, int y, int width, int height) {
+        if (width <= 0 || height <= 0)
+            return;
+        // Sprite pixels can be larger under a resource pack; the native GUI dimensions remain 21 x 26.
+        int sourceX = sprite.getSrcX() + sx * sprite.getSrcWidth() / 21;
+        int sourceY = sprite.getSrcY() + sy * sprite.getSrcHeight() / 26;
+        int sourceRight = sprite.getSrcX() + (sx + sw) * sprite.getSrcWidth() / 21;
+        int sourceBottom = sprite.getSrcY() + (sy + sh) * sprite.getSrcHeight() / 26;
+        sprite.copy().src(sourceX, sourceY, sourceRight - sourceX, sourceBottom - sourceY)
+                .dest(x, y, width, height).blit(graphics);
+    }
+
+    private void drawAeDesktopBacking(GuiGraphicsExtractor graphics, Rect2i screen) {
+        var sprite = Blitter.guiSprite(AppEng.makeId("vertical_buttons_bg"));
+        // All columns share the tallest column's footer, forming one rectangular backing.
+        for (var column : desktopColumns) {
+            int x = screen.getX() + column.getX(), y = screen.getY() + column.getY();
+            backingPiece(graphics, sprite, 2, 2, 1, 1, x, y, column.getWidth(), column.getHeight());
+            backingPiece(graphics, sprite, 5, 0, 1, 2, x, y, column.getWidth(), 2);
+            backingPiece(graphics, sprite, 5, 22, 1, 4, x, y + column.getHeight() - 4, column.getWidth(), 4);
+        }
+        for (int i = desktopColumns.size() - 1; i >= 0; i--) {
+            var column = desktopColumns.get(i);
+            int x = screen.getX() + column.getX(), y = screen.getY() + column.getY();
+            int exposedTop = i == desktopColumns.size() - 1 ? 2 : desktopColumns.get(i + 1).getHeight() - 4;
+            int exposedHeight = column.getHeight() - 4 - exposedTop;
+            if (exposedHeight > 0) {
+                backingPiece(graphics, sprite, 0, 2, 2, 1, x, y + exposedTop, 2, exposedHeight);
+                backingPiece(graphics, sprite, 0, 22, 2, 4, x, y + column.getHeight() - 4, 2, 4);
+            }
+            if (i == desktopColumns.size() - 1)
+                backingPiece(graphics, sprite, 0, 0, 2, 2, x, y, 2, 2);
+        }
+    }
+
+    public List<Button> buttons() {
+        return List.copyOf(buttons);
+    }
+
+    public void layoutDesktop(Rect2i frame, int reservedTopTabs) {
+        desktop = true;
+        int row = reservedTopTabs;
+        int leftRows = Math.max(1, (frame.getHeight() - 24) / appeng.client.gui.DesktopChrome.TAB_SIZE);
+        for (var button : buttons) {
+            if (!button.visible) {
+                continue;
+            }
+            if (button instanceof IconButton icon) {
+                icon.setDesktopEdge(row < leftRows ? appeng.client.gui.DesktopChrome.Edge.LEFT
+                        : appeng.client.gui.DesktopChrome.Edge.BOTTOM);
+            }
+            if (row < leftRows) {
+                button.setX(frame.getX() - appeng.client.gui.DesktopChrome.TAB_SIZE + 1);
+                button.setY(frame.getY() + 24 + row * appeng.client.gui.DesktopChrome.TAB_SIZE);
+            } else {
+                button.setX(frame.getX() + 4 + (row - leftRows) * appeng.client.gui.DesktopChrome.TAB_SIZE);
+                button.setY(frame.getY() + frame.getHeight() - 1);
+            }
+            row++;
+        }
+    }
 
     public VerticalButtonBar() {
     }
 
     public void add(Button button) {
         buttons.add(button);
+    }
+
+    public int preferredHeight() {
+        return buttons.stream().filter(button -> button.visible)
+                .mapToInt(button -> button.getHeight() + VERTICAL_SPACING).sum() + 2 * MARGIN;
     }
 
     @Override
@@ -75,6 +188,9 @@ public class VerticalButtonBar implements ICompositeWidget {
      */
     @Override
     public void updateBeforeRender() {
+        if (desktop) {
+            return;
+        }
         int currentY = position.getY() + MARGIN;
         int maxWidth = 0;
 
@@ -123,6 +239,13 @@ public class VerticalButtonBar implements ICompositeWidget {
 
     @Override
     public void drawBackgroundLayer(GuiGraphicsExtractor guiGraphics, Rect2i bounds, Point mouse) {
+        if (aeDesktop) {
+            drawAeDesktopBacking(guiGraphics, bounds);
+            return;
+        }
+        if (desktop) {
+            return;
+        }
         guiGraphics.blitSprite(RenderPipelines.GUI_TEXTURED,
                 AppEng.makeId("vertical_buttons_bg"),
                 bounds.getX() + this.bounds.getX() - 2,

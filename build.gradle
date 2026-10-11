@@ -76,6 +76,16 @@ import appengbuild.*
 import com.diffplug.gradle.spotless.JsonExtension
 
 dependencies {
+    // Salt discovers the integration descriptor. Its classes must never enter AE's runtime dependencies.
+    def saltJar = files(providers.gradleProperty('saltsInventoryJar')
+            .orElse('libs/salts_inventory_update-26.3-NeoForge-0.1.4.jar'))
+    compileOnly saltJar
+    clientCompileOnly saltJar
+    if (providers.gradleProperty('runtime_salts_inventory').orElse('false').get() == 'true') {
+        localRuntimeOnly saltJar
+        testRuntimeOnly saltJar
+    }
+
     // Dependencies only used for the guide export, but not shipped
     localRuntimeOnly("org.bytedeco:ffmpeg-platform:${ffmpeg_version}")
 
@@ -135,6 +145,7 @@ dependencies {
 
 test {
     useJUnitPlatform()
+    systemProperty 'ae2.test.saltPresent', providers.gradleProperty('runtime_salts_inventory').orElse('false').get()
 
     // Might not need this anymore...
     systemProperty "guideme.ae2.guide.sources", file("guidebook").absolutePath
@@ -169,6 +180,49 @@ neoForge {
             client()
             systemProperty('appeng.tests', 'true')
             sourceSet = sourceSets.client
+        }
+        saltQa {
+            client()
+            sourceSet = sourceSets.client
+            systemProperty('ae2.desktop.qa', 'true')
+            programArguments = ['--username', 'AE2DesktopQA', '--quickPlaySingleplayer', 'SaltsIntegrationQA']
+        }
+        saltTerminalQa {
+            client()
+            sourceSet = sourceSets.client
+            systemProperty('ae2.desktop.qa', 'true')
+            systemProperty('ae2.desktop.qa.suite', 'terminal')
+            programArguments = ['--username', 'AE2DesktopQA', '--quickPlaySingleplayer', 'SaltsIntegrationQA']
+        }
+        saltAtlasQa {
+            client()
+            sourceSet = sourceSets.client
+            systemProperty('ae2.desktop.qa', 'true')
+            systemProperty('ae2.desktop.qa.suite', 'atlas')
+            systemProperty('ae2.desktop.qa.output', findProperty('atlasOutput') ?: '../build/salts-layout-atlas')
+            systemProperty('ae2.desktop.qa.scale', findProperty('atlasGuiScale') ?: '2')
+            systemProperty('ae2.desktop.qa.variants', findProperty('atlasVariants') ?: 'false')
+            systemProperty('ae2.desktop.qa.only', findProperty('atlasOnly') ?: '')
+            systemProperty('ae2.desktop.qa.populated', findProperty('atlasPopulated') ?: 'false')
+            systemProperty('ae2.desktop.qa.interval', findProperty('atlasInterval') ?: '40')
+            systemProperty('ae2.desktop.qa.quit', findProperty('atlasQuit') ?: 'false')
+            programArguments = ['--username', 'AE2DesktopQA', '--quickPlaySingleplayer', 'SaltsAtlasQA', '--width', '1280', '--height', '960']
+        }
+        saltVanillaAtlasQa {
+            client()
+            sourceSet = sourceSets.client
+            systemProperty('ae2.desktop.qa', 'true')
+            systemProperty('ae2.desktop.qa.suite', 'vanilla-atlas')
+            programArguments = ['--username', 'AE2DesktopQA', '--quickPlaySingleplayer', 'SaltsVanillaAtlasQA', '--width', '1280', '--height', '960']
+        }
+        saltVanillaExtrasQa {
+            client()
+            sourceSet = sourceSets.client
+            systemProperty('ae2.desktop.qa', 'true')
+            systemProperty('ae2.desktop.qa.suite', 'vanilla-atlas')
+            systemProperty('ae2.desktop.qa.extras', 'true')
+            systemProperty('ae2.desktop.qa.tabsOnly', 'true')
+            programArguments = ['--username', 'AE2DesktopQA', '--quickPlaySingleplayer', 'SaltsVanillaAtlasQA', '--width', '1280', '--height', '960']
         }
         gametestWorld {
             client()

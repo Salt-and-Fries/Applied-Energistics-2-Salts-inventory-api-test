@@ -14,6 +14,7 @@ import appeng.core.network.clientbound.CompassResponsePacket;
 import appeng.core.network.clientbound.CraftConfirmPlanPacket;
 import appeng.core.network.clientbound.CraftingJobStatusPacket;
 import appeng.core.network.clientbound.CraftingStatusPacket;
+import appeng.core.network.clientbound.DesktopMenuUpdatePacket;
 import appeng.core.network.clientbound.ExportedGridContent;
 import appeng.core.network.clientbound.GuiDataSyncPacket;
 import appeng.core.network.clientbound.ItemTransitionEffectPacket;
@@ -46,6 +47,9 @@ public class InitNetwork {
         var registrar = event.registrar(AppEng.MOD_ID);
 
         // Clientbound
+        registrar.playToClient(appeng.core.network.clientbound.MenuOpeningDataPacket.TYPE,
+                appeng.core.network.clientbound.MenuOpeningDataPacket.STREAM_CODEC);
+        registrar.playToClient(DesktopMenuUpdatePacket.TYPE, DesktopMenuUpdatePacket.STREAM_CODEC);
         registrar.playToClient(MolecularAssemblerAnimationPacket.TYPE, MolecularAssemblerAnimationPacket.STREAM_CODEC);
         registrar.playToClient(BlockTransitionEffectPacket.TYPE, BlockTransitionEffectPacket.STREAM_CODEC);
         registrar.playToClient(ClearPatternAccessTerminalPacket.TYPE, ClearPatternAccessTerminalPacket.STREAM_CODEC);

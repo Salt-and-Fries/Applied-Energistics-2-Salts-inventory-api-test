@@ -149,9 +149,8 @@ public class CraftConfirmMenu extends AEBaseMenu implements ISubMenu {
         var subsequentCrafts = stacksToCraft.subList(1, stacksToCraft.size());
 
         try {
-            MenuOpener.open(CraftConfirmMenu.TYPE, player, locator);
-
-            if (player.containerMenu instanceof CraftConfirmMenu ccc) {
+            var ccc = MenuOpener.openAndGetMenu(CraftConfirmMenu.TYPE, player, locator);
+            if (ccc != null) {
                 if (!ccc.planJob(
                         firstToCraft.what(),
                         firstToCraft.slots().size(),

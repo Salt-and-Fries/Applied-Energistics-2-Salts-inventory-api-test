@@ -70,7 +70,7 @@ public class ProcessingEncodingPanel extends EncodingModePanel {
 
     @Override
     public void drawBackgroundLayer(GuiGraphicsExtractor guiGraphics, Rect2i bounds, Point mouse) {
-        BG.dest(bounds.getX() + 8, bounds.getY() + bounds.getHeight() - 165).blit(guiGraphics);
+        drawModeBackground(guiGraphics, bounds, BG);
     }
 
     @Override
@@ -101,7 +101,7 @@ public class ProcessingEncodingPanel extends EncodingModePanel {
 
         scrollbar.setVisible(visible);
         clearBtn.setVisibility(visible);
-        cycleOutputBtn.setVisibility(menu.canCycleProcessingOutputs());
+        cycleOutputBtn.setVisibility(visible && menu.canCycleProcessingOutputs());
 
         screen.setSlotsHidden(SlotSemantics.PROCESSING_INPUTS, !visible);
         screen.setSlotsHidden(SlotSemantics.PROCESSING_OUTPUTS, !visible);

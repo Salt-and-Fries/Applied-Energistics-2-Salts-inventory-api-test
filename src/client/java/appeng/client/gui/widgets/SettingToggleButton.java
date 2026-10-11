@@ -320,6 +320,9 @@ public class SettingToggleButton<T extends Enum<T>> extends IconButton {
         // This isn't great, but we don't get any information about right-clicks
         // otherwise
         Screen currentScreen = Minecraft.getInstance().gui.screen();
+        if (AEBaseScreen.currentDesktopContent() != null) {
+            currentScreen = AEBaseScreen.currentDesktopContent();
+        }
         if (currentScreen instanceof AEBaseScreen) {
             backwards = ((AEBaseScreen<?>) currentScreen).isHandlingRightClick();
         }

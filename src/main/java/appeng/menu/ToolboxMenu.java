@@ -37,6 +37,11 @@ public class ToolboxMenu {
         return this.inv != null;
     }
 
+    /** Actual portable source, also used by an optional desktop companion. */
+    public NetworkToolMenuHost<?> getMenuHost() {
+        return inv;
+    }
+
     public void tick() {
         if (inv != null) {
             if (!inv.isValid()) {

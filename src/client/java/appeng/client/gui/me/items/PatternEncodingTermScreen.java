@@ -29,7 +29,6 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
-import net.neoforged.neoforge.client.network.ClientPacketDistributor;
 
 import appeng.api.behaviors.ContainerItemStrategies;
 import appeng.api.behaviors.EmptyingAction;
@@ -46,6 +45,7 @@ import appeng.core.localization.Tooltips;
 import appeng.core.network.ServerboundPacket;
 import appeng.core.network.serverbound.InventoryActionPacket;
 import appeng.helpers.InventoryAction;
+import appeng.menu.MenuPacketScope;
 import appeng.menu.SlotSemantics;
 import appeng.menu.me.items.PatternEncodingTermMenu;
 import appeng.parts.encoding.EncodingMode;
@@ -93,6 +93,24 @@ public class PatternEncodingTermScreen<C extends PatternEncodingTermMenu> extend
         }
     }
 
+    @Override
+    protected void drawDesktopOverlayHints(GuiGraphicsExtractor graphics) {
+        super.drawDesktopOverlayHints(graphics);
+        if (!usesAeDesktopLayout())
+            return;
+        var body = desktopContentBounds();
+        var lastTab = modeTabButtons.get(EncodingMode.STONECUTTING);
+        if (lastTab == null || !lastTab.visible
+                || lastTab.getY() + lastTab.getHeight() != body.getY() + body.getHeight())
+            return;
+        // The native horizontal tab has a white vertical joining rail in its first two columns.
+        // At the final footer that rail must turn into the body's lower bevel, not continue downward.
+        // Only the rail is replaced; the 22 x 22 tab, its icon and input rectangle remain untouched.
+        var bottom = getStyle().getTerminalStyle().getBottom();
+        bottom.copy().src(bottom.getSrcX() + 4, bottom.getSrcY() + bottom.getSrcHeight() - 4, 2, 4)
+                .dest(lastTab.getX(), body.getY() + body.getHeight() - 4).blit(graphics);
+    }
+
     /**
      * Using the Pick Block binding on a processing pattern slot opens the amount entry dialog.
      */
@@ -108,7 +126,7 @@ public class PatternEncodingTermScreen<C extends PatternEncodingTermMenu> extend
                             ServerboundPacket message = new InventoryActionPacket(
                                     InventoryAction.SET_FILTER, slot.index,
                                     GenericStack.wrapInItemStack(newStack));
-                            ClientPacketDistributor.sendToServer(message);
+                            MenuPacketScope.send(message);
                         });
                 switchToScreen(screen);
                 return true;

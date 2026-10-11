@@ -45,6 +45,11 @@ import appeng.core.AppEng;
 public class Scrollbar implements IScrollSource, ICompositeWidget {
 
     private boolean visible = true;
+    private boolean desktop;
+
+    public void setDesktop(boolean desktop) {
+        this.desktop = desktop;
+    }
 
     /**
      * The screen x-coordinate of the scrollbar's inner track.
@@ -105,6 +110,14 @@ public class Scrollbar implements IScrollSource, ICompositeWidget {
      */
     @Override
     public void drawForegroundLayer(GuiGraphicsExtractor guiGraphics, Rect2i bounds, Point mouse) {
+        if (desktop) {
+            appeng.client.gui.DesktopChrome.recessed(guiGraphics,
+                    new Rect2i(displayX - 1, displayY - 1, style.handleWidth() + 2, height + 2));
+            appeng.client.gui.DesktopChrome.button(guiGraphics,
+                    new Rect2i(displayX, displayY + getHandleYOffset(), style.handleWidth(), style.handleHeight()),
+                    mouse.isIn(getBounds()), dragging, getRange() > 0);
+            return;
+        }
         // Draw the track (nice for debugging)
         // guiGraphics.fill( displayX, displayY, this.displayX + width, this.displayY +
         // height, 0xffff0000);
@@ -223,6 +236,12 @@ public class Scrollbar implements IScrollSource, ICompositeWidget {
             this.eventRepeater.stop();
         }
         return false;
+    }
+
+    @Override
+    public void cancelPointer() {
+        this.dragging = false;
+        this.eventRepeater.stop();
     }
 
     @Override

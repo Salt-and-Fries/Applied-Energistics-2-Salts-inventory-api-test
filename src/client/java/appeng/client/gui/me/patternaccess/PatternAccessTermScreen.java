@@ -49,7 +49,6 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
-import net.neoforged.neoforge.client.network.ClientPacketDistributor;
 
 import guideme.color.ConstantColor;
 import guideme.document.LytRect;
@@ -75,6 +74,7 @@ import appeng.core.localization.GuiText;
 import appeng.core.network.serverbound.InventoryActionPacket;
 import appeng.core.network.serverbound.QuickMovePatternPacket;
 import appeng.helpers.InventoryAction;
+import appeng.menu.MenuPacketScope;
 import appeng.menu.implementations.PatternAccessTermMenu;
 
 public class PatternAccessTermScreen<C extends PatternAccessTermMenu> extends AEBaseScreen<C> {
@@ -169,10 +169,25 @@ public class PatternAccessTermScreen<C extends PatternAccessTermMenu> extends AE
 
     @Override
     public void init() {
-        this.visibleRows = Math.max(2, config.getTerminalStyle().getRows(
-                (this.height - GUI_HEADER_HEIGHT - GUI_FOOTER_HEIGHT - GUI_TOP_AND_BOTTOM_PADDING) / ROW_HEIGHT));
+        if (isDesktopHosted()) {
+            var search = style.getWidget("search");
+            search.setLeft(7);
+            search.setTop(18);
+            search.setWidth(162);
+            searchField.resize(162, 12);
+            style.getWidget("scrollbar").setTop(headerHeight() + 1);
+        }
+        int possibleRows = usesAeDesktopLayout()
+                ? (imageHeight - headerHeight() - GUI_FOOTER_HEIGHT) / ROW_HEIGHT
+                : isDesktopHosted()
+                        ? (this.height - 2 * config.getTerminalMargin() - GUI_HEADER_HEIGHT - 4) / ROW_HEIGHT
+                        : (this.height - GUI_HEADER_HEIGHT - GUI_FOOTER_HEIGHT - GUI_TOP_AND_BOTTOM_PADDING)
+                                / ROW_HEIGHT;
+        this.visibleRows = Math.max(2, isDesktopHosted() ? possibleRows
+                : config.getTerminalStyle().getRows(possibleRows));
         // Render inventory in correct place.
-        this.imageHeight = GUI_HEADER_HEIGHT + GUI_FOOTER_HEIGHT + this.visibleRows * ROW_HEIGHT;
+        this.imageHeight = headerHeight() + (isDesktopHosted() && !usesAeDesktopLayout() ? 4 : GUI_FOOTER_HEIGHT)
+                + this.visibleRows * ROW_HEIGHT;
 
         super.init();
 
@@ -183,11 +198,24 @@ public class PatternAccessTermScreen<C extends PatternAccessTermMenu> extends AE
         this.resetScrollbar();
     }
 
+    public static int[] desktopDefaultContentSize() {
+        int available = net.minecraft.client.Minecraft.getInstance().getWindow().getGuiScaledHeight();
+        int possibleRows = (available - GUI_HEADER_HEIGHT - GUI_FOOTER_HEIGHT - GUI_TOP_AND_BOTTOM_PADDING)
+                / ROW_HEIGHT;
+        int rows = Math.max(2, AEConfig.instance().getTerminalStyle().getRows(possibleRows));
+        return new int[] { GUI_WIDTH, GUI_HEADER_HEIGHT + 14 + rows * ROW_HEIGHT + GUI_FOOTER_HEIGHT - 91 };
+    }
+
+    private int headerHeight() {
+        return GUI_HEADER_HEIGHT + (isDesktopHosted() ? 14 : 0);
+    }
+
     @Override
     public void drawFG(GuiGraphicsExtractor guiGraphics, int offsetX, int offsetY, int mouseX,
             int mouseY) {
 
         this.menu.slots.removeIf(slot -> slot instanceof PatternSlot);
+        desktopVirtualSlots.clear();
 
         int textColor = style.getColor(PaletteColor.DEFAULT_TEXT_COLOR).toARGB();
 
@@ -203,8 +231,12 @@ public class PatternAccessTermScreen<C extends PatternAccessTermMenu> extends AE
                                 container,
                                 offset + col,
                                 col * SLOT_SIZE + GUI_PADDING_X,
-                                (i + 1) * SLOT_SIZE);
-                        this.menu.slots.add(slot);
+                                (i + 1) * SLOT_SIZE + (isDesktopHosted() ? 14 : 0));
+                        if (isDesktopHosted()) {
+                            desktopVirtualSlots.add(slot);
+                        } else {
+                            this.menu.slots.add(slot);
+                        }
 
                         // Indicate invalid patterns
                         var pattern = container.getInventory().getStackInSlot(offset + col);
@@ -225,7 +257,7 @@ public class PatternAccessTermScreen<C extends PatternAccessTermMenu> extends AE
                         renderContext.renderItem(
                                 group.icon().getReadOnlyStack(),
                                 GUI_PADDING_X + PATTERN_PROVIDER_NAME_MARGIN_X,
-                                GUI_PADDING_Y + GUI_HEADER_HEIGHT + i * ROW_HEIGHT,
+                                GUI_PADDING_Y + headerHeight() + i * ROW_HEIGHT,
                                 8,
                                 8);
                     }
@@ -245,13 +277,15 @@ public class PatternAccessTermScreen<C extends PatternAccessTermMenu> extends AE
                             this.font.substrByWidth(displayName, TEXT_MAX_WIDTH - 10));
 
                     guiGraphics.text(font, text, GUI_PADDING_X + PATTERN_PROVIDER_NAME_MARGIN_X + 10,
-                            GUI_PADDING_Y + GUI_HEADER_HEIGHT + i * ROW_HEIGHT, textColor, false);
+                            GUI_PADDING_Y + headerHeight() + i * ROW_HEIGHT, textColor, false);
                 }
             }
         }
 
         // Draw an overlay indicating the grid is disconnected
-        renderLinkStatus(guiGraphics, getMenu().getLinkStatus());
+        if (!isDesktopHosted()) {
+            renderLinkStatus(guiGraphics, getMenu().getLinkStatus());
+        }
     }
 
     private void renderLinkStatus(GuiGraphicsExtractor guiGraphics, ILinkStatus linkStatus) {
@@ -261,7 +295,7 @@ public class PatternAccessTermScreen<C extends PatternAccessTermMenu> extends AE
 
             var rect = new LytRect(
                     GUI_PADDING_X - 1,
-                    GUI_HEADER_HEIGHT,
+                    headerHeight(),
                     COLUMNS * 18,
                     visibleRows * ROW_HEIGHT);
 
@@ -273,6 +307,11 @@ public class PatternAccessTermScreen<C extends PatternAccessTermMenu> extends AE
                 renderContext.renderTextCenteredIn(statusDescription.getString(), ERROR_TEXT_STYLE, rect);
             }
         }
+    }
+
+    @Override
+    protected void drawDesktopBodyOverlayHints(GuiGraphicsExtractor graphics) {
+        renderLinkStatus(graphics, getMenu().getLinkStatus());
     }
 
     @Override
@@ -293,7 +332,7 @@ public class PatternAccessTermScreen<C extends PatternAccessTermMenu> extends AE
 
     private int getHoveredLineIndex(int x, int y) {
         x = x - leftPos - GUI_PADDING_X;
-        y = y - topPos - SLOT_SIZE; // Header is exactly one slot in size
+        y = y - topPos - SLOT_SIZE - (isDesktopHosted() ? 14 : 0);
         if (x < 0 || y < 0) {
             return -1;
         }
@@ -347,7 +386,7 @@ public class PatternAccessTermScreen<C extends PatternAccessTermMenu> extends AE
                 PatternSlot machineSlot = (PatternSlot) slot;
                 final InventoryActionPacket p = new InventoryActionPacket(action, machineSlot.getSlotIndex(),
                         machineSlot.getMachineInv().getServerId());
-                ClientPacketDistributor.sendToServer(p);
+                MenuPacketScope.send(p);
             }
 
             return;
@@ -364,7 +403,7 @@ public class PatternAccessTermScreen<C extends PatternAccessTermMenu> extends AE
             int clickedSlot = slot.getContainerSlot();
             var packet = new QuickMovePatternPacket(
                     menu.containerId, clickedSlot, List.copyOf(visiblePatternContainers));
-            ClientPacketDistributor.sendToServer(packet);
+            MenuPacketScope.send(packet);
             return;
         }
 
@@ -374,12 +413,18 @@ public class PatternAccessTermScreen<C extends PatternAccessTermMenu> extends AE
     @Override
     public void drawBG(GuiGraphicsExtractor guiGraphics, int offsetX, int offsetY, int mouseX,
             int mouseY, float partialTicks) {
+        if (isDesktopHosted() && !usesAeDesktopLayout()) {
+            return;
+        }
         // Draw the top of the dialog
         blit(guiGraphics, offsetX, offsetY, HEADER_BBOX);
+        if (isDesktopHosted()) {
+            blit(guiGraphics, offsetX, offsetY + GUI_HEADER_HEIGHT, new Rect2i(0, 3, GUI_WIDTH, 14));
+        }
 
         final int scrollLevel = scrollbar.getCurrentScroll();
 
-        int currentY = offsetY + GUI_HEADER_HEIGHT;
+        int currentY = offsetY + headerHeight();
 
         // Draw the footer now so slots will draw on top of it
         blit(guiGraphics, offsetX, currentY + this.visibleRows * ROW_HEIGHT, FOOTER_BBOX);
@@ -407,6 +452,19 @@ public class PatternAccessTermScreen<C extends PatternAccessTermMenu> extends AE
         }
 
         guiGraphics.nextStratum();
+    }
+
+    @Override
+    protected void drawDesktopBottomEdge(GuiGraphicsExtractor graphics) {
+        if (isDesktopHosted()) {
+            var body = desktopContentBounds();
+            var source = appeng.client.gui.style.Blitter.texture("guis/patternaccessterminal.png")
+                    .src(FOOTER_BBOX.getX(), FOOTER_BBOX.getY(), FOOTER_BBOX.getWidth(), FOOTER_BBOX.getHeight());
+            var header = appeng.client.gui.style.Blitter.texture("guis/patternaccessterminal.png")
+                    .src(HEADER_BBOX.getX(), HEADER_BBOX.getY(), HEADER_BBOX.getWidth(), HEADER_BBOX.getHeight());
+            appeng.client.gui.style.DesktopFrameEdges.catalogBottom(graphics, header, source,
+                    getGuiLeft(), getGuiTop() + body.getHeight() - 4, body.getWidth());
+        }
     }
 
     private Rect2i selectRowBackgroundBox(boolean isInvLine, boolean firstLine, boolean lastLine) {
@@ -617,6 +675,11 @@ public class PatternAccessTermScreen<C extends PatternAccessTermMenu> extends AE
         TerminalStyle next = btn.getNextValue(backwards);
         AEConfig.instance().setTerminalStyle(next);
         btn.set(next);
+        if (isDesktopHosted() && usesAeDesktopLayout()) {
+            var size = desktopDefaultContentSize();
+            requestDesktopSize(size[0], size[1]);
+            return;
+        }
         this.reinitialize();
     }
 

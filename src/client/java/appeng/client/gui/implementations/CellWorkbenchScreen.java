@@ -77,6 +77,18 @@ public class CellWorkbenchScreen extends UpgradeableScreen<CellWorkbenchMenu> {
     }
 
     @Override
+    public void drawFG(net.minecraft.client.gui.GuiGraphicsExtractor graphics, int x, int y, int mouseX, int mouseY) {
+        super.drawFG(graphics, x, y, mouseX, mouseY);
+        if (isDesktopHosted() && !usesAeDesktopLayout() && menu.getWorkbenchItem().isEmpty()) {
+            int lineY = 28;
+            for (var line : font.split(Component.translatable("gui.ae2.DesktopHint.insertCell"), imageWidth - 16)) {
+                graphics.text(font, line, 8, lineY, appeng.client.gui.DesktopChrome.TEXT, false);
+                lineY += font.lineHeight + 2;
+            }
+        }
+    }
+
+    @Override
     protected List<Component> getTooltipFromContainerItem(ItemStack stack) {
         var cell = getMenu().getWorkbenchItem();
         if (cell.isEmpty()) {

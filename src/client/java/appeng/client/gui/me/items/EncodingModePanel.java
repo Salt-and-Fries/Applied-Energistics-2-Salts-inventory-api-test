@@ -17,6 +17,19 @@ public abstract class EncodingModePanel implements ICompositeWidget {
     protected int x;
     protected int y;
 
+    protected final void drawModeBackground(net.minecraft.client.gui.GuiGraphicsExtractor graphics,
+            Rect2i bounds, appeng.client.gui.style.Blitter ordinary) {
+        if ((screen.isDesktopHosted() && !screen.usesAeDesktopLayout())) {
+            graphics.fill(bounds.getX() + x, bounds.getY() + y,
+                    bounds.getX() + x + 124, bounds.getY() + y + 66, 0xFFB8B8B8);
+            if (!(this instanceof StonecuttingEncodingPanel)) {
+                appeng.client.gui.DesktopChrome.arrow(graphics, bounds.getX() + x + 69, bounds.getY() + y + 26);
+            }
+        } else {
+            ordinary.dest(bounds.getX() + 8, bounds.getY() + bounds.getHeight() - 165).blit(graphics);
+        }
+    }
+
     public EncodingModePanel(PatternEncodingTermScreen<?> screen, WidgetContainer widgets) {
         this.screen = screen;
         this.menu = screen.getMenu();

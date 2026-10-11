@@ -15,6 +15,12 @@ import net.minecraft.util.Util;
 import appeng.core.AppEng;
 
 public class AE2Button extends Button {
+    private boolean desktop;
+
+    public void setDesktop(boolean value) {
+        desktop = value;
+    }
+
     protected static final WidgetSprites SPRITES = new WidgetSprites(
             AppEng.makeId("button"), AppEng.makeId("button_disabled"), AppEng.makeId("button_highlighted"));
 
@@ -28,6 +34,12 @@ public class AE2Button extends Button {
 
     @Override
     protected void extractContents(GuiGraphicsExtractor pGuiGraphics, int pMouseX, int pMouseY, float pPartialTick) {
+        if (desktop) {
+            extractDefaultSprite(pGuiGraphics);
+            renderButtonText(pGuiGraphics, Minecraft.getInstance().font, 2,
+                    active ? 0xFFFFFFFF : 0xFFA0A0A0, 0);
+            return;
+        }
         Minecraft minecraft = Minecraft.getInstance();
         pGuiGraphics.blitSprite(RenderPipelines.GUI_TEXTURED,
                 SPRITES.get(this.active, this.isHovered()),

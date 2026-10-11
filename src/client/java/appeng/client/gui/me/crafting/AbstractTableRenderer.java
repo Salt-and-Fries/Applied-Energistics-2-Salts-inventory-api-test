@@ -49,23 +49,30 @@ public abstract class AbstractTableRenderer<T> {
     private static final int LINE_SPACING = 1;
 
     private static final float TEXT_SCALE = 0.5f;
-    private static final float INV_TEXT_SCALE = 2.0f;
 
     protected final AEBaseScreen<?> screen;
     private final Font fontRenderer;
-    private final float lineHeight;
-    private final int x;
-    private final int y;
-    private final int rows;
+    private int x;
+    private int y;
+    private int rows;
     private StackWithBounds hoveredStack;
+
+    protected boolean readableRows() {
+        return false;
+    }
 
     public AbstractTableRenderer(AEBaseScreen<?> screen, int x, int y, int rows) {
         this.screen = screen;
         this.x = x;
         this.y = y;
         this.fontRenderer = Minecraft.getInstance().font;
-        this.lineHeight = this.fontRenderer.lineHeight * TEXT_SCALE;
         this.rows = rows;
+    }
+
+    public final void setLayout(int x, int y, int rows) {
+        this.x = x;
+        this.y = y;
+        this.rows = Math.max(1, rows);
     }
 
     public final void render(GuiGraphicsExtractor guiGraphics, int mouseX, int mouseY, List<T> entries,
@@ -79,63 +86,83 @@ public abstract class AbstractTableRenderer<T> {
 
         var pose = guiGraphics.pose();
 
+        int columns = readableRows() ? 1 : COLS;
+        int cellWidth = readableRows() ? 203 : CELL_WIDTH;
+        int cellHeight = readableRows() ? 37 : CELL_HEIGHT;
+        float scale = readableRows() ? 1 : TEXT_SCALE;
+        float inverseScale = 1 / scale;
+        if (readableRows()) {
+            var nativeTable = screen.getStyle().getBackground();
+            nativeTable.copy().src(nativeTable.getSrcX() + 15, nativeTable.getSrcY() + 25, 1, 1)
+                    .dest(x, y, cellWidth, rows * (cellHeight + 1)).blit(guiGraphics);
+            for (int row = 1; row < rows; row++) {
+                nativeTable.copy().src(nativeTable.getSrcX() + 9, nativeTable.getSrcY() + 41, 1, 1)
+                        .dest(x, y + row * (cellHeight + 1) - 1, cellWidth, 1).blit(guiGraphics);
+            }
+        }
+
         for (int row = 0; row < this.rows; row++) {
-            for (int col = 0; col < COLS; col++) {
-                int i = (row + scrollOffset) * COLS + col;
+            for (int col = 0; col < columns; col++) {
+                int i = (row + scrollOffset) * columns + col;
                 if (i >= entries.size()) {
                     break;
                 }
 
                 T entry = entries.get(i);
 
-                int cellX = x + col * (CELL_WIDTH + CELL_BORDER);
-                int cellY = y + row * (CELL_HEIGHT + CELL_BORDER);
+                int cellX = x + col * (cellWidth + CELL_BORDER);
+                int cellY = y + row * (cellHeight + CELL_BORDER);
 
                 int background = getEntryBackgroundColor(entry);
                 if (background != 0) {
-                    guiGraphics.fill(cellX, cellY, cellX + CELL_WIDTH, cellY + CELL_HEIGHT, background);
+                    guiGraphics.fill(cellX, cellY, cellX + cellWidth, cellY + cellHeight, background);
                 }
 
                 List<Component> lines = getEntryDescription(entry);
 
                 // Compute the full height of the text block to center it vertically
-                float textHeight = lines.size() * lineHeight;
+                float textHeight = lines.size() * fontRenderer.lineHeight * scale;
                 if (lines.size() > 1) {
                     textHeight += (lines.size() - 1) * LINE_SPACING;
                 }
-                float textY = Math.round(cellY + (CELL_HEIGHT - textHeight) / 2.0f);
+                float textY = Math.round(cellY + (cellHeight - textHeight) / 2.0f);
 
                 // Position the item at the right side of the cell with a 3px margin
-                int itemX = cellX + CELL_WIDTH - 19;
+                int itemX = readableRows() ? cellX + 4 : cellX + cellWidth - 19;
 
                 pose.pushMatrix();
-                pose.scale(TEXT_SCALE);
+                pose.scale(scale);
                 for (Component line : lines) {
+                    if (readableRows() && fontRenderer.width(line) > cellWidth - 28) {
+                        line = Component
+                                .literal(fontRenderer.plainSubstrByWidth(line.getString(), cellWidth - 40) + "...")
+                                .withStyle(line.getStyle());
+                    }
                     final int w = fontRenderer.width(line);
                     guiGraphics.text(fontRenderer, line,
-                            (int) ((itemX - 2 - w * TEXT_SCALE) * INV_TEXT_SCALE),
-                            (int) (textY * INV_TEXT_SCALE), textColor, false);
-                    textY += lineHeight + LINE_SPACING;
+                            readableRows() ? cellX + 24 : (int) ((itemX - 2 - w * scale) * inverseScale),
+                            (int) (textY * inverseScale), textColor, false);
+                    textY += fontRenderer.lineHeight * scale + LINE_SPACING;
                 }
                 pose.popMatrix();
 
                 var entryStack = getEntryStack(entry);
 
-                int itemY = cellY + (CELL_HEIGHT - 16) / 2;
+                int itemY = cellY + (cellHeight - 16) / 2;
                 AEKeyRendering.drawInGui(Minecraft.getInstance(), guiGraphics, itemX, itemY, entryStack);
 
                 int overlay = getEntryOverlayColor(entry);
                 if (overlay != 0) {
-                    guiGraphics.fill(cellX, cellY, cellX + CELL_WIDTH, cellY + CELL_HEIGHT, overlay);
+                    guiGraphics.fill(cellX, cellY, cellX + cellWidth, cellY + cellHeight, overlay);
                 }
 
-                if (mouseXRelative >= cellX && mouseXRelative <= cellX + CELL_WIDTH
-                        && mouseYRelative >= cellY && mouseYRelative <= cellY + CELL_HEIGHT) {
+                if (mouseXRelative >= cellX && mouseXRelative <= cellX + cellWidth
+                        && mouseYRelative >= cellY && mouseYRelative <= cellY + cellHeight) {
                     tooltipLines = getEntryTooltip(entry);
                     hovered = new StackWithBounds(
                             new GenericStack(entryStack, 0),
-                            new Rect2i(screen.getGuiLeft() + cellX, screen.getGuiTop() + cellY, CELL_WIDTH,
-                                    CELL_HEIGHT));
+                            new Rect2i(screen.getGuiLeft() + cellX, screen.getGuiTop() + cellY, cellWidth,
+                                    cellHeight));
                 }
             }
         }
@@ -154,7 +181,7 @@ public abstract class AbstractTableRenderer<T> {
      * @return The number of rows that are off-screen given a number of entries.
      */
     public int getScrollableRows(int size) {
-        return getScrollableRows(size, this.rows);
+        return readableRows() ? Math.max(0, size - this.rows) : getScrollableRows(size, this.rows);
     }
 
     protected static int getScrollableRows(int size, int rows) {

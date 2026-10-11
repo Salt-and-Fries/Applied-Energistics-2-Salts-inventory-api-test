@@ -1,5 +1,6 @@
 package appeng.client.gui.implementations;
 
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -99,24 +100,49 @@ public class KeyTypeSelectionScreen<C extends AEBaseMenu & KeyTypeSelectionMenu,
             int xPos = this.bounds.getX() + bounds.getX();
             int yPos = this.bounds.getY() + bounds.getY();
 
-            checkboxes.clear();
+            if (screen.isDesktopHosted()) {
+                checkboxes.keySet().retainAll(getMenu().getClientKeyTypeSelection().keyTypes().keySet());
+            } else {
+                checkboxes.clear();
+            }
 
-            for (var keyType : getMenu().getClientKeyTypeSelection().keyTypes().keySet()) {
+            // The model map has no stable iteration order across JVMs. Use the same public type-id
+            // order for ordinary and hosted windows so each choice keeps the same row.
+            var keyTypes = getMenu().getClientKeyTypeSelection().keyTypes().keySet().stream()
+                    .sorted(Comparator.comparing(keyType -> keyType.getId().toString())).toList();
+            for (var keyType : keyTypes) {
                 var text = keyType.getDescription();
 
                 // Dynamic width based on text size
-                int textboxWidth = 24 + Minecraft.getInstance().font.width(text);
+                int textboxWidth = (screen.isDesktopHosted() ? 28 : 24)
+                        + Minecraft.getInstance().font.width(text);
+                if (screen.isDesktopHosted()) {
+                    int available = Math.max(28, screen.desktopContentBounds().getWidth() - this.bounds.getX() - 8);
+                    textboxWidth = Math.min(textboxWidth, available);
+                }
 
-                var checkbox = new AECheckbox(xPos, yPos, textboxWidth, AECheckbox.SIZE, screen.getStyle(),
-                        keyType.getDescription());
-                checkbox.setChangeListener(() -> getMenu().selectKeyType(keyType, checkbox.isSelected()));
+                var checkbox = checkboxes.get(keyType);
+                if (checkbox == null) {
+                    checkbox = new AECheckbox(xPos, yPos, textboxWidth, AECheckbox.SIZE, screen.getStyle(), text);
+                    var selectedCheckbox = checkbox;
+                    checkbox.setChangeListener(() -> getMenu().selectKeyType(keyType, selectedCheckbox.isSelected()));
+                    checkboxes.put(keyType, checkbox);
+                }
+                checkbox.setX(xPos);
+                checkbox.setY(yPos);
+                checkbox.setWidth(textboxWidth);
+                if (screen.isDesktopHosted()) {
+                    checkbox.setHeight(Math.max(AECheckbox.SIZE,
+                            Minecraft.getInstance().font.split(text, textboxWidth - 26).size() * 9 + 2));
+                }
                 addWidget.accept(checkbox);
-                checkboxes.put(keyType, checkbox);
 
-                yPos += KEY_TYPE_SPACING;
+                yPos += screen.isDesktopHosted() ? checkbox.getHeight() + PADDING
+                        : KEY_TYPE_SPACING;
             }
 
-            int height = this.bounds.getY() + AEKeyTypes.getAll().size() * KEY_TYPE_SPACING + PADDING;
+            int height = screen.isDesktopHosted() ? yPos - bounds.getY() + PADDING
+                    : this.bounds.getY() + AEKeyTypes.getAll().size() * KEY_TYPE_SPACING + PADDING;
             KeyTypeSelectionScreen.this.setHeight(height);
         }
     }

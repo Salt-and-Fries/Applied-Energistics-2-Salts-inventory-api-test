@@ -35,7 +35,28 @@ public class WirelessAccessPointScreen extends AEBaseScreen<WirelessAccessPointM
         super(menu, playerInventory, title, style);
         this.addToLeftToolbar(CommonButtons.togglePowerUnit());
 
-        widgets.addBackgroundPanel("linkPanel");
+        if (!style.isDesktopRestyled()) {
+            widgets.addBackgroundPanel("linkPanel");
+        }
+    }
+
+    @Override
+    public void drawBG(net.minecraft.client.gui.GuiGraphicsExtractor graphics, int x, int y, int mouseX,
+            int mouseY, float partialTicks) {
+        super.drawBG(graphics, x, y, mouseX, mouseY, partialTicks);
+        if (isDesktopHosted() && !usesAeDesktopLayout()) {
+            var inputs = menu.getSlots(appeng.menu.SlotSemantics.MACHINE_INPUT);
+            var outputs = menu.getSlots(appeng.menu.SlotSemantics.MACHINE_OUTPUT);
+            if (!inputs.isEmpty() && !outputs.isEmpty()) {
+                int arrowX = x + inputs.getFirst().x + 8;
+                int start = y + inputs.getFirst().y + 22;
+                int end = y + outputs.getFirst().y - 6;
+                graphics.fill(arrowX - 2, start, arrowX + 2, end - 5, 0xFF8B8B8B);
+                for (int i = 0; i < 6; i++) {
+                    graphics.fill(arrowX - 5 + i, end - 5 + i, arrowX + 6 - i, end - 4 + i, 0xFF8B8B8B);
+                }
+            }
+        }
     }
 
     @Override
@@ -52,6 +73,39 @@ public class WirelessAccessPointScreen extends AEBaseScreen<WirelessAccessPointM
 
         setTextContent("range", rangeText);
         setTextContent("energy_use", energyUseText);
+    }
+
+    @Override
+    protected void drawDesktopBottomEdge(net.minecraft.client.gui.GuiGraphicsExtractor graphics) {
+        if (usesAeDesktopLayout()) {
+            var body = desktopContentBounds();
+            int join = getStyle().getWidget("linkPanel")
+                    .resolve(new net.minecraft.client.renderer.Rect2i(0, 0, imageWidth, imageHeight)).getX();
+            // Extend the original clear machine surface, rather than exposing the removed inventory row.
+            var source = getStyle().getBackground();
+            if (body.getHeight() > 74) {
+                source.copy().src(source.getSrcX(), source.getSrcY() + 70, join, 1)
+                        .dest(body.getX(), body.getY() + 70, join, body.getHeight() - 74).blit(graphics);
+            }
+            appeng.client.gui.style.DesktopFrameEdges.bottomRun(graphics, getStyle().getBackground(),
+                    body.getX(), body.getY() + body.getHeight() - 4, join);
+        } else
+            super.drawDesktopBottomEdge(graphics);
+    }
+
+    @Override
+    protected void drawDesktopOverlayHints(net.minecraft.client.gui.GuiGraphicsExtractor graphics) {
+        if (!usesAeDesktopLayout())
+            return;
+        var body = desktopContentBounds();
+        var position = getStyle().getWidget("linkPanel")
+                .resolve(new net.minecraft.client.renderer.Rect2i(0, 0, imageWidth, imageHeight));
+        if (position.getY() + getStyle().getImage("linkPanel").getSrcHeight() != body.getHeight())
+            return;
+        // Turn the panel's white joining rail into the shared footer instead of leaving a one-pixel spur.
+        var source = getStyle().getBackground();
+        source.copy().src(source.getSrcX() + 4, source.getSrcY() + source.getSrcHeight() - 4, 1, 4)
+                .dest(body.getX() + position.getX(), body.getY() + body.getHeight() - 4).blit(graphics);
     }
 
 }

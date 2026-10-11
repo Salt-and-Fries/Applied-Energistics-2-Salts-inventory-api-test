@@ -44,4 +44,27 @@ public class MolecularAssemblerScreen extends UpgradeableScreen<MolecularAssembl
 
         this.pb.setFullMsg(Component.literal(this.menu.getCurrentProgress() + "%"));
     }
+
+    @Override
+    public void drawBG(net.minecraft.client.gui.GuiGraphicsExtractor graphics, int x, int y, int mouseX, int mouseY,
+            float partialTicks) {
+        super.drawBG(graphics, x, y, mouseX, mouseY, partialTicks);
+        if (isDesktopHosted() && !usesAeDesktopLayout()) {
+            appeng.client.gui.DesktopChrome.arrow(graphics, x + 90, y + 33);
+        }
+    }
+
+    @Override
+    public void drawFG(net.minecraft.client.gui.GuiGraphicsExtractor graphics, int x, int y, int mouseX, int mouseY) {
+        super.drawFG(graphics, x, y, mouseX, mouseY);
+        if (isDesktopHosted() && !usesAeDesktopLayout()
+                && menu.getSlots(appeng.menu.SlotSemantics.MACHINE_CRAFTING_GRID).stream()
+                        .noneMatch(this::desktopSlotVisible)) {
+            int lineY = 60;
+            for (var line : font.split(Component.translatable("gui.ae2.DesktopHint.insertPattern"), imageWidth - 16)) {
+                graphics.text(font, line, 8, lineY, appeng.client.gui.DesktopChrome.TEXT, false);
+                lineY += font.lineHeight + 2;
+            }
+        }
+    }
 }

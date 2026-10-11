@@ -38,6 +38,31 @@ public final class MenuOpener {
     }
 
     private static final Map<MenuType<? extends AEBaseMenu>, Opener> registry = new HashMap<>();
+    private static final ThreadLocal<java.util.function.Consumer<AEBaseMenu>> CAPTURE = new ThreadLocal<>();
+
+    /** Returns the created menu even when an optional presentation keeps the player's ordinary menu active. */
+    @SuppressWarnings("unchecked")
+    public static <T extends AEBaseMenu> T openAndGetMenu(MenuType<T> type, Player player, MenuHostLocator locator) {
+        AEBaseMenu[] result = { null };
+        var previous = CAPTURE.get();
+        CAPTURE.set(menu -> result[0] = menu);
+        try {
+            return open(type, player, locator) ? (T) result[0] : null;
+        } finally {
+            if (previous == null) {
+                CAPTURE.remove();
+            } else {
+                CAPTURE.set(previous);
+            }
+        }
+    }
+
+    public static void menuCreated(AEBaseMenu menu) {
+        var capture = CAPTURE.get();
+        if (capture != null) {
+            capture.accept(menu);
+        }
+    }
 
     public static <T extends AEBaseMenu> void addOpener(MenuType<T> type, Opener opener) {
         registry.put(type, opener);

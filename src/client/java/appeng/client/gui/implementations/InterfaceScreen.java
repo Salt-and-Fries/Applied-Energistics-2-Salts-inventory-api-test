@@ -78,6 +78,16 @@ public class InterfaceScreen<C extends InterfaceMenu> extends UpgradeableScreen<
             var item = configSlots.get(i).getItem();
             button.visible = !item.isEmpty();
         }
+        if (isDesktopHosted() && !usesAeDesktopLayout()) {
+            boolean amounts = amountButtons.stream().anyMatch(button -> button.visible);
+            int configY = amounts ? 34 : 16;
+            style.getSlots().get(SlotSemantics.CONFIG.id()).setTop(configY);
+            style.getSlots().get(SlotSemantics.STORAGE.id()).setTop(configY + 36);
+            style.getText().get("interface_stored_items").getPosition().setTop(configY + 24);
+            style.getGeneratedBackground().setHeight(configY + 56);
+            repositionSlots(SlotSemantics.CONFIG);
+            repositionSlots(SlotSemantics.STORAGE);
+        }
     }
 
     static class SetAmountButton extends IconButton {
